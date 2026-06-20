@@ -1,15 +1,18 @@
 # Screenshots
 
-Placeholder directory for README and GitHub Pages marketing images.
+Marketing images for [README.md](../README.md) and [index.html](../index.html).
 
-## Maintainer: capture from the app
+| File | Use |
+|------|-----|
+| `chat.png` | Main companion chat (Sage) |
+| `workflow.gif` | Dual-agent workflow demo |
+| `companion.png` | Settings → Companion personalities |
+| `connections.png` | Settings → Connection / models |
+| `workspace.png` | Settings → Workspace sandbox |
 
-1. Run `npm run tauri dev` (or a release build).
-2. Capture at **1280×720** or **1440×900** — chat screen with Luna visible.
-3. Save as:
-   - `chat-dark.png` — main conversation view
-   - `settings.png` — settings panel (optional)
-   - `executor-panel.png` — executor activity expanded (optional)
-4. Update links in [README.md](../README.md) and [index.html](./index.html) when files exist.
-
-Until real screenshots are added, the landing page uses branded placeholders.
+## Replacing captures
+
+1. Run `npm run tauri dev` (or a release build).
+2. Capture at **1280×720** or **1440×900**.
+3. Overwrite the files above (keep filenames so README links stay valid).
+4. Optimize GIF size before commit (`workflow.gif` should stay under ~5 MB for GitHub).

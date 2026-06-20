@@ -40,17 +40,31 @@ The result feels personal and engaging, not like a generic task assistant.
 - **Optional executor panel** — activity log for power users without a second chat voice
 - **Desktop builds** — Windows (NSIS, MSI), macOS (DMG), Linux (deb, AppImage)
 
-> Screenshots: capture from the app and add to [`docs/screenshots/`](./docs/screenshots/). Placeholder mockups appear on the [landing page](./docs/index.html) until then.
-
 ---
 
 ## Screenshots
 
-| Chat (placeholder) | Settings (placeholder) |
-|--------------------|------------------------|
-| Branded preview on [docs/index.html](./docs/index.html) | Add `docs/screenshots/settings.png` when ready |
+**Companion chat** — Sage with quick prompts and project context:
 
-Maintainers: see [`docs/screenshots/README.md`](./docs/screenshots/README.md) for capture guidelines.
+<p align="center">
+  <img src="./docs/screenshots/chat.png" alt="Muse chat with Sage — companion suggestions and conversation" width="820" />
+</p>
+
+**Dual-agent workflow** — companion delegates; executor works in your workspace:
+
+<p align="center">
+  <img src="./docs/screenshots/workflow.gif" alt="Muse dual-agent workflow demonstration" width="820" />
+</p>
+
+**Settings** — personalities, API connection, and workspace sandbox:
+
+<p align="center">
+  <img src="./docs/screenshots/companion.png" alt="Companion personality selector — Luna, Sage, and Spark" width="270" />
+  &nbsp;
+  <img src="./docs/screenshots/connections.png" alt="Connection settings — API provider and models" width="270" />
+  &nbsp;
+  <img src="./docs/screenshots/workspace.png" alt="Workspace settings — project folder and verify loop" width="270" />
+</p>
 
 ---
 
