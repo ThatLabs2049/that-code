@@ -1,0 +1,86 @@
+.personality-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.personality-cards__hint {
+  margin: var(--space-2) 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.personality-card {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  text-align: start;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.personality-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.personality-card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.personality-card__marker {
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  color: var(--accent);
+}
+
+.personality-card[data-personality="luna"] .personality-card__marker::before {
+  content: "☾";
+}
+
+.personality-card[data-personality="sage"] .personality-card__marker::before {
+  content: "◈";
+}
+
+.personality-card[data-personality="spark"] .personality-card__marker::before {
+  content: "✦";
+}
+
+.personality-card__name {
+  font-weight: 650;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.personality-card__desc {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.personality-card__sample {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.personality-card[data-personality="luna"] {
+  --accent: #e8a54b;
+  --accent-soft: rgba(232, 165, 75, 0.14);
+}
+
+.personality-card[data-personality="sage"] {
+  --accent: #5eb8b0;
+  --accent-soft: rgba(94, 184, 176, 0.14);
+}
+
+.personality-card[data-personality="spark"] {
+  --accent: #f07856;
+  --accent-soft: rgba(240, 120, 86, 0.14);
+}

@@ -1,0 +1,211 @@
+name: Release
+
+
+
+on:
+
+  push:
+
+    tags:
+
+      - v*
+
+
+
+permissions:
+
+  contents: write
+
+
+
+jobs:
+
+  build:
+
+    name: Build (${{ matrix.platform }})
+
+    strategy:
+
+      fail-fast: false
+
+      matrix:
+
+        include:
+
+          - platform: ubuntu-22.04
+
+            args: --target x86_64-unknown-linux-gnu
+
+          - platform: windows-latest
+
+            args: ""
+
+          - platform: macos-latest
+
+            args: ""
+
+
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+
+
+      - uses: actions/setup-node@v4
+
+        with:
+
+          node-version: 20
+
+          cache: npm
+
+
+
+      - uses: dtolnay/rust-toolchain@stable
+
+
+
+      - name: Install Linux dependencies
+
+        if: matrix.platform == 'ubuntu-22.04'
+
+        run: |
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+
+            libwebkit2gtk-4.1-dev \
+
+            libappindicator3-dev \
+
+            librsvg2-dev \
+
+            patchelf
+
+
+
+      - name: Install frontend dependencies
+
+        run: npm ci
+
+
+
+      - uses: tauri-apps/tauri-action@v0
+
+        env:
+
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        with:
+
+          tagName: ${{ github.ref_name }}
+
+          releaseName: Muse ${{ github.ref_name }}
+
+          releaseBody: |
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+
+
+
+            ## Installers
+
+
+
+            Download the bundle for your platform below.
+
+
+
+            ## Verify downloads
+
+
+
+            The attached **`SHA256.txt`** lists SHA256 checksums for every release asset.
+
+            Compare your file hash before installing — see [docs/TRUST.md](https://github.com/${{ github.repository }}/blob/main/docs/TRUST.md) for Windows, macOS, and Linux examples.
+
+
+
+            **Trusted source:** [GitHub Releases](https://github.com/${{ github.repository }}/releases) only.
+
+          releaseDraft: true
+
+          prerelease: false
+
+          args: ${{ matrix.args }}
+
+
+
+      - name: Generate SHA256 manifest (platform)
+
+        shell: pwsh
+
+        run: |
+
+          ./scripts/generate-sha256.ps1 `
+
+            -FolderPath src-tauri/target/release/bundle `
+
+            -OutputPath SHA256-${{ matrix.platform }}.txt
+
+
+
+      - uses: actions/upload-artifact@v4
+
+        with:
+
+          name: sha256-${{ matrix.platform }}
+
+          path: SHA256-${{ matrix.platform }}.txt
+
+
+
+  merge-checksums:
+
+    name: Upload SHA256.txt
+
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - uses: actions/download-artifact@v4
+
+        with:
+
+          path: sha256-parts
+
+          pattern: sha256-*
+
+          merge-multiple: true
+
+
+
+      - name: Merge SHA256 manifests
+
+        run: |
+
+          cat sha256-parts/*.txt | sort -u > SHA256.txt
+
+          echo "Merged checksum manifest:"
+
+          cat SHA256.txt
+
+
+
+      - name: Upload SHA256.txt to release
+
+        env:
+
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        run: |
+
+          gh release upload "${{ github.ref_name }}" SHA256.txt --clobber
+
+

@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Muse — a local-first desktop AI companion. Characters should not only respond. Characters should live."
+    />
+    <title>Muse — in the world of musing</title>
+    <link rel="icon" type="image/svg+xml" href="assets/muse-logo.svg" />
+    <style>
+      :root {
+        --bg-base: #16161c;
+        --bg-elevated: #1f1f28;
+        --bg-soft: #252530;
+        --text-primary: #f2f0ed;
+        --text-muted: #a8a4b8;
+        --accent: #e8a54b;
+        --accent-soft: #c9786a;
+        --border-subtle: rgba(255, 255, 255, 0.08);
+        --shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+        --radius: 16px;
+        --max-width: 1080px;
+        --font: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font);
+        font-size: 1rem;
+        line-height: 1.6;
+        color: var(--text-primary);
+        background:
+          radial-gradient(ellipse 80% 50% at 50% -20%, rgba(232, 165, 75, 0.12), transparent),
+          var(--bg-base);
+        min-height: 100vh;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      a:hover {
+        color: #f0bc6a;
+      }
+
+      a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 4px;
+      }
+
+      .skip-link {
+        position: absolute;
+        top: -100%;
+        left: 1rem;
+        z-index: 100;
+        padding: 0.75rem 1rem;
+        background: var(--accent);
+        color: var(--bg-base);
+        font-weight: 600;
+        border-radius: 8px;
+      }
+
+      .skip-link:focus {
+        top: 1rem;
+      }
+
+      header,
+      main,
+      footer {
+        width: min(var(--max-width), calc(100% - 2rem));
+        margin-inline: auto;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.5rem 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: inherit;
+        text-decoration: none;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      .brand img {
+        width: 40px;
+        height: 40px;
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem 1.5rem;
+        font-size: 0.95rem;
+      }
+
+      nav a {
+        color: var(--text-muted);
+        text-decoration: none;
+      }
+
+      nav a:hover {
+        color: var(--text-primary);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2.5rem;
+        align-items: center;
+        padding: 2rem 0 4rem;
+      }
+
+      @media (min-width: 860px) {
+        .hero {
+          grid-template-columns: 1.05fr 0.95fr;
+          padding-top: 3rem;
+        }
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin: 0 0 0.75rem;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+        background: rgba(232, 165, 75, 0.12);
+        border: 1px solid rgba(232, 165, 75, 0.25);
+        border-radius: 999px;
+      }
+
+      h1 {
+        margin: 0 0 1rem;
+        font-size: clamp(2rem, 5vw, 3rem);
+        line-height: 1.15;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+
+      .tagline {
+        margin: 0 0 1.5rem;
+        font-size: 1.15rem;
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .lead {
+        margin: 0 0 2rem;
+        max-width: 38ch;
+        color: var(--text-muted);
+      }
+
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.85rem 1.35rem;
+        border-radius: 999px;
+        font-weight: 600;
+        text-decoration: none;
+        border: 1px solid transparent;
+        transition: transform 0.15s ease, background 0.15s ease;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+        color: #1a1208;
+      }
+
+      .btn-primary:hover {
+        color: #1a1208;
+        transform: translateY(-1px);
+      }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--text-primary);
+        border-color: var(--border-subtle);
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg-elevated);
+        color: var(--text-primary);
+      }
+
+      .hero-visual {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .mock-window {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 280px;
+        padding: 2rem;
+        background:
+          linear-gradient(180deg, rgba(232, 165, 75, 0.06), transparent 40%),
+          var(--bg-soft);
+      }
+
+      .mock-chat {
+        width: 100%;
+        max-width: 360px;
+      }
+
+      .mock-bubble {
+        padding: 0.85rem 1rem;
+        border-radius: 14px;
+        margin-bottom: 0.75rem;
+        font-size: 0.95rem;
+      }
+
+      .mock-bubble.companion {
+        background: rgba(232, 165, 75, 0.14);
+        border: 1px solid rgba(232, 165, 75, 0.22);
+        border-top-left-radius: 4px;
+      }
+
+      .mock-bubble.user {
+        margin-left: auto;
+        max-width: 85%;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-top-right-radius: 4px;
+        text-align: right;
+      }
+
+      .mock-label {
+        display: block;
+        margin-bottom: 0.35rem;
+        font-size: 0.75rem;
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      section {
+        padding: 3rem 0;
+      }
+
+      section h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1.75rem;
+        letter-spacing: -0.02em;
+      }
+
+      .section-lead {
+        margin: 0 0 2rem;
+        color: var(--text-muted);
+        max-width: 52ch;
+      }
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+      }
+
+      .feature-card {
+        padding: 1.25rem 1.35rem;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: calc(var(--radius) - 4px);
+      }
+
+      .feature-card h3 {
+        margin: 0 0 0.5rem;
+        font-size: 1.05rem;
+      }
+
+      .feature-card p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.95rem;
+      }
+
+      .flow {
+        padding: 1.5rem;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        overflow-x: auto;
+      }
+
+      .flow pre {
+        margin: 0;
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+
+      .trust-banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.25rem 1.5rem;
+        background: rgba(201, 120, 106, 0.1);
+        border: 1px solid rgba(201, 120, 106, 0.25);
+        border-radius: var(--radius);
+      }
+
+      .trust-banner p {
+        margin: 0;
+        max-width: 48ch;
+        color: var(--text-muted);
+      }
+
+      footer {
+        padding: 3rem 0 4rem;
+        border-top: 1px solid var(--border-subtle);
+        color: var(--text-muted);
+        font-size: 0.9rem;
+      }
+
+      footer p {
+        margin: 0 0 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header>
+      <a class="brand" href="#top" aria-label="Muse home">
+        <img src="assets/muse-logo.svg" width="40" height="40" alt="" />
+        <span>Muse</span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#download">Download</a>
+        <a href="TRUST.md">Verify downloads</a>
+        <a href="https://github.com/Satan2049/muse">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div>
+          <p class="eyebrow">Open source · Local-first</p>
+          <h1>Characters should not only respond.<br />Characters should live.</h1>
+          <p class="tagline">in the world of musing</p>
+          <p class="lead">
+            Muse is a desktop AI companion built with Tauri. Chat with Luna — warm,
+            curious, emotionally present — while a hidden executor handles planning,
+            research, and workspace tools behind one unified conversation.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn btn-primary"
+              href="https://github.com/Satan2049/muse/releases/latest"
+              >Download latest release</a
+            >
+            <a class="btn btn-secondary" href="https://github.com/Satan2049/muse"
+              >View repository</a
+            >
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+          <div class="mock-window">
+            <div class="mock-chat">
+              <div class="mock-bubble user">Help me plan my first week freelancing.</div>
+              <div class="mock-bubble companion">
+                <span class="mock-label">Luna</span>
+                That sounds like a big step — and an exciting one. Let me think
+                through a starter plan for you.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>Built for connection and capability</h2>
+        <p class="section-lead">
+          Companion-first UX with serious task execution when you need it — all on your
+          device.
+        </p>
+        <div class="features">
+          <article class="feature-card">
+            <h3>Luna &amp; personalities</h3>
+            <p>Warm companion chat with Luna, Sage, and Spark — one thread, distinct voices.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Dual-agent orchestration</h3>
+            <p>Companion delegates structured tasks; executor runs tools in your workspace.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Local-first storage</h3>
+            <p>SQLite conversation history and settings stay on your machine.</p>
+          </article>
+          <article class="feature-card">
+            <h3>English &amp; Persian</h3>
+            <p>RTL-safe interface with accessible, reduced-motion-friendly UI.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Executor visibility</h3>
+            <p>Optional activity panel for power users — still one companion voice.</p>
+          </article>
+          <article class="feature-card">
+            <h3>OpenAI-compatible APIs</h3>
+            <p>Bring your own provider — local models or cloud endpoints.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="how-it-works">
+        <h2>How it works</h2>
+        <p class="section-lead">
+          You always see one conversation. Luna decides when deeper execution is needed.
+        </p>
+        <div class="flow">
+          <pre>
+User message
+    ↓
+Companion (Luna) — rapport, intent, emotional presence
+    ↓
+Structured task spec (when needed)
+    ↓
+Executor — planning, tools, deterministic work
+    ↓
+Companion formats the result naturally
+    ↓
+User</pre
+          >
+        </div>
+      </section>
+
+      <section id="download">
+        <h2>Download</h2>
+        <p class="section-lead">
+          Install from the official GitHub Releases page only. Each release includes
+          <code>SHA256.txt</code> for checksum verification.
+        </p>
+        <div class="trust-banner">
+          <p>
+            Verify every download with SHA256 before installing. See our trust guide for
+            Windows, macOS, Linux steps and VirusTotal transparency notes.
+          </p>
+          <a class="btn btn-secondary" href="TRUST.md">Read TRUST.md</a>
+        </div>
+        <p style="margin-top: 1.5rem">
+          <a class="btn btn-primary" href="https://github.com/Satan2049/muse/releases/latest"
+            >Get Muse on GitHub Releases</a
+          >
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        <a href="https://github.com/Satan2049/muse">Repository</a> ·
+        <a href="TRUST.md">Trust &amp; verification</a> ·
+        <a href="https://github.com/Satan2049/muse/blob/main/SECURITY.md">Security</a> ·
+        <a href="https://github.com/Satan2049/muse/blob/main/LICENSE">MIT License</a>
+      </p>
+      <p>Copyright © 2026 Muse Contributors</p>
+      <p>
+        <strong>GitHub Pages:</strong> In repository Settings → Pages, set source to
+        <em>Deploy from branch</em>, branch <code>main</code>, folder <code>/docs</code>.
+      </p>
+    </footer>
+  </body>
+</html>

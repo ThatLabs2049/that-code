@@ -1,0 +1,131 @@
+.change-review {
+  margin: 0 var(--space-5) var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+}
+
+.change-review__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.change-review__title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.change-review__count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.change-review__body {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+  gap: var(--space-3);
+  min-height: 160px;
+}
+
+.change-review__files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: auto;
+}
+
+.change-review__file {
+  width: 100%;
+  text-align: start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-primary);
+}
+
+.change-review__file--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.change-review__file-path {
+  display: block;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.change-review__file-type {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.change-review__diff {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-subtle);
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.change-review__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.change-review__button {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.change-review__button--secondary {
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.change-review__button--danger {
+  border: 1px solid rgba(255, 120, 120, 0.35);
+  background: rgba(255, 120, 120, 0.1);
+  color: #ffb4b4;
+}
+
+.change-review__feedback {
+  margin: var(--space-2) 0 0;
+  font-size: 0.8125rem;
+}
+
+.change-review__feedback--success {
+  color: #9fd89f;
+}
+
+.change-review__feedback--error {
+  color: #ffb4b4;
+}
+
+@media (max-width: 720px) {
+  .change-review__body {
+    grid-template-columns: 1fr;
+  }
+}
