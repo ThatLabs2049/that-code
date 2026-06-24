@@ -49,17 +49,17 @@ Sibling to **[ThatGPT](https://github.com/Satan2049/ThatGPT)** (ChatGPT, but loc
 ## Screenshots
 
 <p align="center">
-  <img src="./docs/screenshots/chat.png" alt="ThatCode chat with project context" width="820" />
+  <img src="docs/screenshots/chat.png" alt="ThatCode chat with project context" width="820" />
 </p>
 
 <p align="center">
-  <img src="./docs/screenshots/workflow.gif" alt="ThatCode agent workflow" width="820" />
+  <img src="docs/screenshots/agent.png" alt="ThatCode tool activity and change review" width="820" />
 </p>
 
 <p align="center">
-  <img src="./docs/screenshots/connections.png" alt="Connection settings" width="270" />
+  <img src="docs/screenshots/connections.png" alt="Connection settings" width="270" />
   &nbsp;
-  <img src="./docs/screenshots/workspace.png" alt="Workspace settings" width="270" />
+  <img src="docs/screenshots/workspace.png" alt="Workspace settings" width="270" />
 </p>
 
 ---

@@ -5,7 +5,7 @@ Marketing images for [README.md](../../README.md) and [index.html](../index.html
 | File | Use |
 |------|-----|
 | `chat.png` | Main ThatCode chat with project context |
-| `workflow.gif` | Agent workflow demo (tools + diffs) |
+| `agent.png` | Tool activity, diffs, and sidebar |
 | `connections.png` | Settings → Connection / models |
 | `workspace.png` | Settings → Workspace sandbox |
 
@@ -14,4 +14,4 @@ Marketing images for [README.md](../../README.md) and [index.html](../index.html
 1. Run `npm run tauri dev` (or a release build).
 2. Capture at **1280×720** or **1440×900**.
 3. Overwrite the files above (keep filenames so README links stay valid).
-4. Optimize GIF size before commit (`workflow.gif` should stay under ~5 MB for GitHub).
+4. Optimize PNG/GIF size before commit (keep large assets under ~5 MB for GitHub).
