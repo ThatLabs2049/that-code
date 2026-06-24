@@ -1,14 +1,14 @@
 # Trust and download verification
 
-Muse is open source. The **only trusted download source** is the official [GitHub Releases](https://github.com/Satan2049/muse/releases) page for this repository.
+ThatCode is open source. The **only trusted download source** is the official [GitHub Releases](https://github.com/Satan2049/that-code/releases) page for this repository.
 
-Do not install Muse from third-party mirrors, random forum links, or unknown file shares.
+Do not install ThatCode from third-party mirrors, random forum links, or unknown file shares.
 
 ---
 
 ## Verify SHA256 checksums
 
-Each release includes a **`SHA256.txt`** file attached to the release assets. It lists one line per installer or archive:
+Each release includes a **`SHA256.txt`** file attached to the release assets (also in the repo root for [v2.7.1](../SHA256.txt)). It lists one line per installer or archive:
 
 ```
 <sha256-hex>  <filename>
@@ -16,41 +16,35 @@ Each release includes a **`SHA256.txt`** file attached to the release assets. It
 
 The filename must match the asset you downloaded exactly.
 
+### v2.7.1 checksums
+
+| File | SHA256 |
+|------|--------|
+| `ThatCode_2.7.1_x64-setup.exe` | `26754bc38d74085603d7ab2799c9c1336a19e1cae5936d6f926e045cf14be4ed` |
+| `ThatCode_2.7.1_x64_en-US.msi` | `62881009afcfe2e1b1ac661117999b5a684b2e0eb653db61dda6fbc0bfdc65dd` |
+| `ThatCode_2.7.1_x64-portable.zip` | `499f0c9b29199420424021cf2569258fdd965bb15624ac1413773335a2d791fb` |
+
 ### Windows (PowerShell)
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\Muse_2.1.0_x64-setup.exe
+Get-FileHash -Algorithm SHA256 .\ThatCode_2.7.1_x64-setup.exe
+```
+
+Or for MSI:
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\ThatCode_2.7.1_x64_en-US.msi
 ```
 
 Compare the `Hash` value (lowercase hex) to the line in `SHA256.txt` for that filename.
 
-### macOS
-
-```powershell
-# If you use PowerShell on Windows-style paths, same as above.
-# On macOS Terminal:
-shasum -a 256 Muse_2.1.0_aarch64.dmg
-```
-
-Or:
-
-```bash
-sha256sum Muse_2.1.0_aarch64.dmg
-```
-
-### Linux
-
-```bash
-sha256sum Muse_2.1.0_amd64.AppImage
-```
-
-If the computed hash matches the official manifest, the file was not altered in transit.
+Exact filenames depend on the Tauri bundle version — always match the asset name on the release page.
 
 ---
 
 ## VirusTotal reports
 
-New and **unsigned** desktop installers often trigger **false positives** on one or two engines — especially heuristic / machine-learning rules (for example Trapmine, SecureAge, Arctic Wolf). That does **not** automatically mean the file is malicious.
+New and **unsigned** desktop installers often trigger **false positives** on one or two engines — especially heuristic / machine-learning rules. That does **not** automatically mean the file is malicious.
 
 When reviewing a VirusTotal report, check:
 
@@ -58,44 +52,33 @@ When reviewing a VirusTotal report, check:
 |--------|------------------|
 | **Hash match** | The file hash on VirusTotal matches your download **and** the value in `SHA256.txt` from the official release |
 | **Detection count** | Widespread detections across many reputable vendors are more concerning than one or two ML/heuristic flags |
-| **Vendor reputation** | Prefer reports linked from our release notes; re-scan the **exact** file you downloaded from GitHub Releases |
-| **Source** | Only trust files downloaded from [GitHub Releases](https://github.com/Satan2049/muse/releases) |
+| **Source** | Only trust files downloaded from [GitHub Releases](https://github.com/Satan2049/that-code/releases) |
 
-### Example reports (Windows v2.x installers)
+### v2.7.1 scans (maintainer-submitted)
 
-These permalinks are provided for transparency. Re-scan your own download if the release version differs.
+| Asset | VirusTotal | Notes |
+|-------|------------|-------|
+| NSIS (`.exe`) | [Report](https://www.virustotal.com/gui/file/26754bc38d74085603d7ab2799c9c1336a19e1cae5936d6f926e045cf14be4ed?nocache=1) | Arctic Wolf: Unsafe; SecureAge: Malicious — common unsigned-app heuristics |
+| MSI | [Report](https://www.virustotal.com/gui/file/62881009afcfe2e1b1ac661117999b5a684b2e0eb653db61dda6fbc0bfdc65dd?nocache=1) | No security vendor flagged (0/72 at time of release) |
+| Portable (`.zip`) | [Report](https://www.virustotal.com/gui/file/499f0c9b29199420424021cf2569258fdd965bb15624ac1413773335a2d791fb?nocache=1) | Trapmine: Suspicious.low.ml.score — ML heuristic only |
 
-| Artifact | VirusTotal | Notes |
-|----------|------------|-------|
-| Portable `.exe` | [Analysis](https://www.virustotal.com/gui/file-analysis/Y2RmNzI3ZWQyMWJjMGY0YThmMWQ4MDczNGY0MTQ4YzU6MTc4MTk1NTI1MA==) | Trapmine: Malicious.moderate.ml.score (heuristic) |
-| `.msi` installer | [Analysis](https://www.virustotal.com/gui/file-analysis/N2VhODZjMDMzNmJhNmJlYmZjMGM1YmQ0ZDBmYjM4NDM6MTc4MTk1NTM5MA==) | Trapmine: Malicious.moderate.ml.score (heuristic) |
-| NSIS setup | [File report](https://www.virustotal.com/gui/file/a4b988531bba53cbc48bae6cdafc28c45ad8ec6e9c1a17fdf5690bf788d85c9d?nocache=1) | Arctic Wolf (Unsafe), SecureAge (Malicious) — common on unsigned NSIS builds |
-
-If your hash matches the official release but VirusTotal shows a few heuristic hits, treat that as expected for unsigned open-source desktop software until code signing is added.
+Re-scan after each release if your security team requires fresh reports. Legacy Muse v2.x scans remain in git history for reference.
 
 ---
 
 ## Security vulnerabilities vs. download trust
 
 - **Download verification** (this document) — confirm you have an unmodified release file.
-- **Vulnerability reporting** — see [SECURITY.md](../SECURITY.md) for how to report security issues in Muse itself.
-
-These are separate concerns. A verified download can still contain a bug; report bugs through GitHub Issues and security issues through the process in `SECURITY.md`.
+- **Vulnerability reporting** — see [SECURITY.md](../SECURITY.md).
 
 ---
 
 ## Maintainer: generating `SHA256.txt`
 
-From the repository root after a release build:
+From the repository root after a Windows release build:
 
 ```powershell
 .\scripts\generate-sha256.ps1
 ```
 
-Or point at a CI artifacts folder:
-
-```powershell
-.\scripts\generate-sha256.ps1 -FolderPath .\bundle -OutputPath .\SHA256.txt
-```
-
-Attach the resulting `SHA256.txt` to the GitHub Release (the release workflow merges platform manifests automatically when tags are pushed).
+The release workflow attaches `SHA256.txt` automatically when a `v*` tag is pushed. Copy or verify against the committed manifest before publishing.

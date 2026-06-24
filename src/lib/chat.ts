@@ -32,10 +32,22 @@ export interface ExecutorActivity {
   activityLog: ActivityStep[];
 }
 
+import type { RetrievedChunk } from "./rag";
+import type { AgentTier } from "./settings";
+import type { MessageAttachment } from "./workspace";
+
+export type { AgentTier };
+
 export interface SendMessageResult {
   executorRunId?: string;
   hasFileChanges: boolean;
+  retrievedContext?: RetrievedChunk[];
+  awaitingPlanApproval?: boolean;
+  planContent?: string;
+  assistantMessage?: string;
 }
+
+export type { RetrievedChunk };
 
 export type { FileChange } from "./changes";
 
@@ -44,10 +56,9 @@ export interface ExecutorProgressEvent {
   phase: string;
   activity?: ExecutorActivity;
 }
-export interface CompanionStreamPayload {
+export interface AssistantStreamPayload {
   conversationId: string;
   streamId: string;
-  phase: string;
   delta: string;
   done: boolean;
   content?: string;
@@ -69,16 +80,36 @@ export function getMessages(conversationId: string): Promise<StoredMessage[]> {
 export function sendMessage(
   conversationId: string,
   content: string,
+  agentTier?: AgentTier,
+  attachments?: MessageAttachment[],
+  exploreThenImplement?: boolean,
 ): Promise<SendMessageResult> {
-  return invoke<SendMessageResult>("send_message", { conversationId, content });
-}
-
-export function listConversations(): Promise<Conversation[]> {
-  return invoke<Conversation[]>("list_conversations");
+  return invoke<SendMessageResult>("send_message", {
+    conversationId,
+    content,
+    agentTier: agentTier ?? null,
+    attachments: attachments?.length ? attachments : null,
+    exploreThenImplement: exploreThenImplement ?? null,
+  });
 }
 
 export function clearHistory(conversationId: string): Promise<StoredMessage[]> {
   return invoke<StoredMessage[]>("clear_history", { conversationId });
+}
+
+export function respondToAgentPlan(
+  conversationId: string,
+  approved: boolean,
+): Promise<SendMessageResult> {
+  return invoke<SendMessageResult>("respond_to_agent_plan", { conversationId, approved });
+}
+
+export interface PendingPlanView {
+  briefing: string;
+}
+
+export function getPendingPlan(conversationId: string): Promise<PendingPlanView | null> {
+  return invoke<PendingPlanView | null>("get_pending_plan", { conversationId });
 }
 
 export function cancelRun(conversationId: string): Promise<boolean> {

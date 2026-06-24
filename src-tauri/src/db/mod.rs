@@ -2,36 +2,63 @@ mod executor_runs;
 mod memories;
 mod migrations;
 mod models;
+mod pending_plans;
 mod settings;
 mod task_queue;
 
-pub use executor_runs::{complete_executor_run, get_executor_run, insert_executor_run};
+pub use executor_runs::{
+    complete_executor_run, get_executor_run, insert_executor_run, update_executor_run_result,
+};
 pub use memories::{create_memory, delete_memory, list_memories, top_memories_for_context, update_memory, Memory};
 pub use models::{Conversation, Message};
+pub use pending_plans::{
+    delete_pending_plan, list_pending_plans, upsert_pending_plan,
+};
 pub use settings::{get_setting, set_setting};
 pub use task_queue::{
-    clear_completed, complete_queued_task, enqueue_task, fail_running_tasks, list_pending_tasks,
+    clear_completed, complete_queued_task, enqueue_task, fail_all_active_tasks, fail_running_tasks, list_all_tasks,
     pop_next_pending, QueuedTask,
 };
 
-use migrations::{MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, SCHEMA_VERSION};
+use migrations::{MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, SCHEMA_VERSION};
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use std::path::Path;
 use std::sync::Mutex;
 use uuid::Uuid;
 
-pub const LUNA_GREETING_EN: &str = "Hey — I'm Luna. I'm glad you're here.\n\nTell me what's on your mind, or ask for help with something you're working toward. I'm listening.";
-pub const LUNA_GREETING_FA: &str = "سلام — من لونا هستم. خوشحالم که اینجایی.\n\nهر چیزی که ذهنتو مشغول کرده بگو، من اینجام یا اگه میخوای توی پروژه هات کمکت کنم.";
-pub const DEFAULT_CONVERSATION_TITLE: &str = "Chat with Luna";
+pub const THATCODE_GREETING_EN: &str = "Pick a project folder in Settings.\n\nAsk ThatCode to read, edit, run tests, or explain the codebase.";
+pub const THATCODE_GREETING_FA: &str = "در تنظیمات یک پوشه پروژه انتخاب کن.\n\nاز ThatCode بخواه فایل‌ها را بخواند، ویرایش کند، تست اجرا کند، یا کدبیس را توضیح دهد.";
+const LUNA_GREETING_EN: &str = "Hey — I'm Luna. I'm glad you're here.\n\nTell me what's on your mind, or ask for help with something you're working toward. I'm listening.";
+const LUNA_GREETING_FA: &str = "سلام — من لونا هستم. خوشحالم که اینجایی.\n\nهر چیزی که ذهنتو مشغول کرده بگو، من اینجام یا اگه میخوای توی پروژه هات کمکت کنم.";
+const SAGE_GREETING_EN: &str = "Hello — I'm Sage.";
+const SAGE_GREETING_FA: &str = "سلام — من Sage هستم.";
+const SPARK_GREETING_EN: &str = "Hey! I'm Spark.";
+const SPARK_GREETING_FA: &str = "سلام! من Spark هستم.";
+
+const LEGACY_SEED_GREETINGS: &[&str] = &[
+    LUNA_GREETING_EN,
+    LUNA_GREETING_FA,
+    SAGE_GREETING_EN,
+    SAGE_GREETING_FA,
+    SPARK_GREETING_EN,
+    SPARK_GREETING_FA,
+    "Hey — I'm Luna. I'm glad you're here.",
+    "سلام — من لونا هستم.",
+];
+pub const DEFAULT_CONVERSATION_TITLE: &str = "ThatCode";
 
 pub fn greeting_for_settings(settings: &crate::settings::AiSettings) -> &'static str {
-    crate::personalities::greeting_for(&settings.personality_id, &settings.ui_locale)
+    if settings.ui_locale == "fa" {
+        THATCODE_GREETING_FA
+    } else {
+        THATCODE_GREETING_EN
+    }
 }
 
 fn is_seed_greeting(content: &str) -> bool {
-    crate::personalities::PERSONALITIES
-        .iter()
-        .any(|p| content == p.greeting_en || content == p.greeting_fa)
+    content == THATCODE_GREETING_EN
+        || content == THATCODE_GREETING_FA
+        || LEGACY_SEED_GREETINGS.contains(&content)
 }
 
 /// If the conversation only contains Luna's seed greeting, update it to match the current UI locale.
@@ -115,7 +142,15 @@ fn migrate(conn: &Connection) -> SqlResult<()> {
 
     if version < 3 {
         conn.execute_batch(MIGRATION_V3)?;
-        conn.execute("UPDATE schema_version SET version = ?1", params![SCHEMA_VERSION])?;
+        conn.execute("UPDATE schema_version SET version = ?1", params![3])?;
+    }
+
+    if version < SCHEMA_VERSION {
+        conn.execute_batch(MIGRATION_V4)?;
+        conn.execute(
+            "UPDATE schema_version SET version = ?1",
+            params![SCHEMA_VERSION],
+        )?;
     }
 
     Ok(())
@@ -306,7 +341,7 @@ mod tests {
 
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, "companion");
-        assert_eq!(messages[0].content, LUNA_GREETING_EN);
+        assert_eq!(messages[0].content, THATCODE_GREETING_EN);
     }
 
     #[test]
@@ -320,7 +355,7 @@ mod tests {
         let messages = get_messages(&conn, &conversation.id).unwrap();
 
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].content, LUNA_GREETING_FA);
+        assert_eq!(messages[0].content, THATCODE_GREETING_FA);
     }
 
     #[test]
@@ -335,7 +370,7 @@ mod tests {
         refresh_seed_greeting_if_pristine(&conn).unwrap();
 
         let messages = get_messages(&conn, &conversation.id).unwrap();
-        assert_eq!(messages[0].content, LUNA_GREETING_FA);
+        assert_eq!(messages[0].content, THATCODE_GREETING_FA);
     }
 
     #[test]

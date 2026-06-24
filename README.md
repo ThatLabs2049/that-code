@@ -1,119 +1,120 @@
 <p align="center">
-  <img src="public/muse-logo.svg" alt="Muse logo" width="72" height="72" />
+  <img src="public/thatcode-icon.svg" alt="ThatCode" width="72" height="72" />
 </p>
 
-<h1 align="center">Muse</h1>
+<h1 align="center">ThatCode</h1>
 
-<p align="center"><em>in the world of musing</em></p>
-
-<p align="center"><strong>Characters should not only respond. Characters should live.</strong></p>
+<p align="center"><em>Repo agent on your machine. Bring your own API.</em></p>
 
 <p align="center">
-  <a href="https://github.com/Satan2049/muse/actions/workflows/ci.yml"><img src="https://github.com/Satan2049/muse/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/Satan2049/muse/releases/latest"><img src="https://img.shields.io/github/v/release/Satan2049/muse?label=release" alt="Latest release" /></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/Satan2049/muse" alt="MIT License" /></a>
+  <a href="https://github.com/Satan2049/that-code/actions/workflows/ci.yml"><img src="https://github.com/Satan2049/that-code/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/Satan2049/that-code/releases/latest"><img src="https://img.shields.io/github/v/release/Satan2049/that-code?label=release" alt="Latest release" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/Satan2049/that-code" alt="MIT License" /></a>
 </p>
 
 <p align="center">
-  <a href="https://Satan2049.github.io/muse/">Landing page</a> ·
-  <a href="https://github.com/Satan2049/muse/releases/latest">Download</a> ·
+  <a href="https://github.com/Satan2049/ThatGPT">ThatGPT</a> family ·
+  <a href="https://github.com/Satan2049/that-code/releases/latest">Download (Windows)</a> ·
   <a href="./docs/TRUST.md">Verify downloads</a> ·
   <a href="./SECURITY.md">Security</a>
 </p>
 
 ---
 
-Muse is an open-source **desktop AI companion** built with Tauri. You chat with warm, emotionally intelligent characters — starting with **Luna** — while a separate execution agent handles planning, research, and workspace tools behind the scenes.
+**ThatCode** is a local coding agent with a simple desktop UI. Point it at a project folder, bring your own OpenAI-compatible API, and ask it to read, edit, run tests, and explain your codebase.
 
-The result feels personal and engaging, not like a generic task assistant.
+Sibling to **[ThatGPT](https://github.com/Satan2049/ThatGPT)** (ChatGPT, but local) — same tone, **separate product**.
+
+> **Formerly Muse (v1–2).** **v2.7.1** is the current ThatCode release (Windows). See [CHANGELOG.md](./CHANGELOG.md) and [docs/temp/thatcode-todo.md](./docs/temp/thatcode-todo.md) for Phase 8–9 plans.
+
+**Platform v1:** Windows (NSIS + MSI + portable zip). macOS and Linux are Phase 8.
 
 ---
 
 ## Features
 
-- **Luna & personalities** — Luna, Sage, and Spark; companion-first single chat thread
-- **Dual-agent orchestration** — companion delegates; executor runs structured work
-- **Local-first** — SQLite conversations, settings, and memory on your device
-- **OpenAI-compatible APIs** — your provider, your models
-- **English & Persian UI** — RTL-safe layout and bidirectional text
-- **Settings** — API key, models, workspace, personalities, memory, executor options
-- **Optional executor panel** — activity log for power users without a second chat voice
-- **Desktop builds** — Windows (NSIS, MSI), macOS (DMG), Linux (deb, AppImage)
+- **Local-first** — SQLite history and settings on your device
+- **Workspace agent** — sandboxed tools: read, edit, search, git, verify
+- **Change review** — unified diffs with revert per file or revert all
+- **Verify loop** — auto-run tests/build after edits (configurable)
+- **OpenAI-compatible API** — any provider; your keys stay local
+- **Optional** — MCP tools, RAG index, task queue (Settings)
+
+- **Command palette** — `Ctrl+K` for settings, tiers, re-index, and more
+
+*Current release:* **[v2.7.1](https://github.com/Satan2049/that-code/releases/tag/v2.7.1)** — verify with [`SHA256.txt`](./SHA256.txt) and [docs/TRUST.md](./docs/TRUST.md) (includes [VirusTotal](https://www.virustotal.com) reports for Windows installers).
 
 ---
 
 ## Screenshots
 
-**Companion chat** — Sage with quick prompts and project context:
-
 <p align="center">
-  <img src="./docs/screenshots/chat.png" alt="Muse chat with Sage — companion suggestions and conversation" width="820" />
+  <img src="./docs/screenshots/chat.png" alt="ThatCode chat with project context" width="820" />
 </p>
 
-**Dual-agent workflow** — companion delegates; executor works in your workspace:
-
 <p align="center">
-  <img src="./docs/screenshots/workflow.gif" alt="Muse dual-agent workflow demonstration" width="820" />
+  <img src="./docs/screenshots/workflow.gif" alt="ThatCode agent workflow" width="820" />
 </p>
 
-**Settings** — personalities, API connection, and workspace sandbox:
-
 <p align="center">
-  <img src="./docs/screenshots/companion.png" alt="Companion personality selector — Luna, Sage, and Spark" width="270" />
+  <img src="./docs/screenshots/connections.png" alt="Connection settings" width="270" />
   &nbsp;
-  <img src="./docs/screenshots/connections.png" alt="Connection settings — API provider and models" width="270" />
-  &nbsp;
-  <img src="./docs/screenshots/workspace.png" alt="Workspace settings — project folder and verify loop" width="270" />
+  <img src="./docs/screenshots/workspace.png" alt="Workspace settings" width="270" />
 </p>
 
 ---
 
-## Installation
+## Installation (Windows)
 
-1. Download the installer for your platform from **[GitHub Releases](https://github.com/Satan2049/muse/releases/latest)** — the only trusted source.
-2. Open **`SHA256.txt`** on the release page and verify your download before installing. See **[docs/TRUST.md](./docs/TRUST.md)** for step-by-step instructions (PowerShell, macOS, Linux) and VirusTotal notes.
-3. Run the installer and configure your API provider in Settings.
+1. Download **NSIS** (`.exe`), **MSI**, or **portable zip** from **[GitHub Releases](https://github.com/Satan2049/that-code/releases/latest)** — trusted source only.
+2. Verify with **`SHA256.txt`** on the release page (see [checksums](./SHA256.txt) for v2.7.1):
+
+   | Asset | SHA256 |
+   |-------|--------|
+   | `ThatCode_2.7.1_x64-setup.exe` | `26754bc38d74085603d7ab2799c9c1336a19e1cae5936d6f926e045cf14be4ed` |
+   | `ThatCode_2.7.1_x64_en-US.msi` | `62881009afcfe2e1b1ac661117999b5a684b2e0eb653db61dda6fbc0bfdc65dd` |
+   | `ThatCode_2.7.1_x64-portable.zip` | `499f0c9b29199420424021cf2569258fdd965bb15624ac1413773335a2d791fb` |
+
+3. Optional: review [VirusTotal reports](./docs/TRUST.md#v271-scans-maintainer-submitted) (unsigned builds may show 1–2 heuristic flags).
+4. Open Settings → set API URL/key → pick a project folder → start asking.
+
+Upgrading from Muse 2.x requires a **clean install** (`com.thatcode.app` is a new app id).
 
 ---
 
 ## Development
 
-**Prerequisites:** [Node.js](https://nodejs.org/) (LTS), [Rust](https://www.rust-lang.org/tools/install), and [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your platform.
+**Windows** recommended for v1 work (release target).
 
 ```bash
-npm install
+git clone https://github.com/Satan2049/that-code.git
+cd that-code
+npm ci
 npm run tauri dev
 ```
 
-Full setup: **[docs/development.md](./docs/development.md)**
+See **[docs/development.md](./docs/development.md)**.
+
+```bash
+npm run build
+npm run test:rust
+npm run lint:rust
+```
 
 ---
 
-## Build
+## Build (Windows)
 
 ```bash
 npm run tauri build
 ```
 
-Installers and bundles are written to **`src-tauri/target/release/bundle/`**.
-
-Generate a checksum manifest for release assets:
+Output: `src-tauri/target/release/bundle/` (NSIS + MSI). Attach portable zip manually if needed for release.
 
 ```powershell
 .\scripts\generate-sha256.ps1
+# Compare with SHA256.txt in repo root before tagging v2.7.1
 ```
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|------------|
-| Desktop shell | [Tauri 2](https://tauri.app/) |
-| Frontend | React, TypeScript |
-| Backend | Rust (Tauri) |
-| AI | OpenAI-compatible APIs |
-| Storage | SQLite |
 
 ---
 
@@ -121,63 +122,20 @@ Generate a checksum manifest for release assets:
 
 | Document | Purpose |
 |----------|---------|
-| [PRODUCT.md](./PRODUCT.md) | Vision, UX, Luna personality, visual design |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, stack, data flow |
-| [AGENTS.md](./AGENTS.md) | Companion and Executor agent specifications |
-| [ROADMAP.md](./ROADMAP.md) | Version plan |
-| [DECISIONS.md](./DECISIONS.md) | Architectural decision records |
-| [CHANGELOG.md](./CHANGELOG.md) | Release history |
-| [docs/TRUST.md](./docs/TRUST.md) | Download verification & VirusTotal transparency |
-| [docs/contributing.md](./docs/contributing.md) | Contributor guide |
-| [docs/development.md](./docs/development.md) | Local development |
-| [docs/index.html](./docs/index.html) | GitHub Pages landing (enable Pages → `/docs`) |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design and request flow |
+| [docs/development.md](./docs/development.md) | Clone, build, test |
+| [docs/temp/thatcode-todo.md](./docs/temp/thatcode-todo.md) | Phase checklist |
+| [docs/TRUST.md](./docs/TRUST.md) | Verify downloads |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contributor guide |
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Start with **[CONTRIBUTING.md](./CONTRIBUTING.md)** (points to the full guide) and read **[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)** before opening a pull request.
-
----
-
-## Security
-
-Report vulnerabilities privately via **[SECURITY.md](./SECURITY.md)** (GitHub Security Advisories preferred). Download verification is covered separately in **[docs/TRUST.md](./docs/TRUST.md)**.
-
----
-
-## Publishing a release (maintainers)
-
-1. Update [CHANGELOG.md](./CHANGELOG.md)
-2. Bump version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`
-3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`
-4. The [release workflow](.github/workflows/release.yml) builds draft assets for Windows, macOS, and Linux, merges **`SHA256.txt`**, and attaches it to the release
-5. Review the draft on GitHub and publish
+See **[CONTRIBUTING.md](./CONTRIBUTING.md)** and **[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)**.
 
 ---
 
 ## License
 
-[MIT](./LICENSE) — Copyright (c) 2026 Muse Contributors
-
----
-
-## Project structure
-
-```
-/
-├── README.md
-├── SECURITY.md
-├── CONTRIBUTING.md
-├── AGENTS.md
-├── ARCHITECTURE.md
-├── PRODUCT.md
-├── docs/
-│   ├── index.html          # GitHub Pages landing
-│   ├── TRUST.md
-│   └── contributing.md
-├── scripts/
-│   └── generate-sha256.ps1
-├── src/                    # React frontend
-└── src-tauri/              # Rust backend
-```
+[MIT](./LICENSE) — Copyright (c) 2026 ThatCode Contributors

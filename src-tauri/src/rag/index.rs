@@ -4,20 +4,32 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use super::chunk::chunk_text;
-use super::embeddings::{create_embedding, cosine_similarity, EmbeddingError};
+use super::embeddings::{cosine_similarity, create_embedding, EmbeddingError};
+use super::ignore::{load_ignore_patterns, should_ignore_name, should_ignore_relative_path};
 use super::store::{
-    chunk_count, delete_chunks_for_path, insert_chunk, latest_index_time, list_source_paths,
-    latest_path_index_time, clear_chunks, RagChunk,
+    chunk_count, delete_chunks_for_path, insert_chunk, latest_index_time,
+    list_source_paths, latest_path_index_time, clear_chunks, RagChunk,
 };
 use crate::ai::EmbeddingTestResult;
+use crate::db::DbState;
+use crate::rag_ann_state::RagAnnState;
 use crate::settings::AiSettings;
 use crate::tools::WorkspaceSandbox;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 const MAX_INDEX_FILES: usize = 400;
 const MAX_FILE_BYTES: usize = 512 * 1024;
+/// Minimum cosine similarity for a retrieved chunk to be included.
+const MIN_RETRIEVAL_SCORE: f32 = 0.2;
+
+/// Oversample ANN hits before exact re-ranking (HNSW is approximate).
+const ANN_OVERSAMPLE: usize = 4;
+
+/// Cap ANN search breadth for very large indexes.
+const MAX_ANN_SEARCH: usize = 512;
 
 const TEXT_EXTENSIONS: &[&str] = &[
     "rs", "ts", "tsx", "js", "jsx", "md", "json", "toml", "yaml", "yml", "css", "html", "txt",
@@ -40,8 +52,27 @@ pub struct RagStatus {
     pub last_indexed_at: Option<String>,
 }
 
-pub async fn build_workspace_index(
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievedChunk {
+    pub source_path: String,
+    pub score: f32,
+    pub snippet: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexProgress {
+    pub files_done: usize,
+    pub files_total: usize,
+    pub chunks_stored: usize,
+    pub current_file: String,
+}
+
+pub async fn build_workspace_index_with_progress(
     settings: &AiSettings,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+    progress: Option<Arc<dyn Fn(IndexProgress) + Send + Sync>>,
 ) -> Result<(Vec<RagChunk>, RagIndexResult), String> {
     if !settings.rag_enabled {
         return Err("RAG is disabled in settings".into());
@@ -52,17 +83,36 @@ pub async fn build_workspace_index(
     };
 
     let sandbox = WorkspaceSandbox::from_root(workspace).map_err(|e| e.to_string())?;
-    let files = collect_text_files(sandbox.root());
+    let ignore_patterns = load_ignore_patterns(sandbox.root());
+    let all_files = collect_text_files(sandbox.root(), &ignore_patterns);
+    let files_total = all_files.len().min(MAX_INDEX_FILES);
+    let files = crate::workspace::sort_files_for_index(all_files, sandbox.root())
+        .into_iter()
+        .take(MAX_INDEX_FILES)
+        .collect::<Vec<_>>();
     let timestamp = chrono::Utc::now().to_rfc3339();
     let mut files_indexed = 0;
     let mut chunks = Vec::new();
 
-    for file in files.into_iter().take(MAX_INDEX_FILES) {
+    for file in files {
+        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::SeqCst)) {
+            return Err("Indexing cancelled".into());
+        }
+
         let relative = file
             .strip_prefix(sandbox.root())
             .map_err(|e| e.to_string())?
             .to_string_lossy()
             .replace('\\', "/");
+
+        if let Some(report) = progress.as_ref() {
+            report(IndexProgress {
+                files_done: files_indexed,
+                files_total,
+                chunks_stored: chunks.len(),
+                current_file: relative.clone(),
+            });
+        }
 
         let content = match fs::read_to_string(&file) {
             Ok(text) => text,
@@ -87,23 +137,37 @@ pub async fn build_workspace_index(
         }
     }
 
+    if let Some(report) = progress.as_ref() {
+        report(IndexProgress {
+            files_done: files_indexed,
+            files_total,
+            chunks_stored: chunks.len(),
+            current_file: String::new(),
+        });
+    }
+
     let chunks_stored = chunks.len();
+    let files_skipped = files_total.saturating_sub(files_indexed);
 
     Ok((
         chunks,
         RagIndexResult {
             files_indexed,
-            files_skipped: 0,
+            files_skipped,
             chunks_stored,
         },
     ))
 }
 
 pub fn persist_workspace_index(conn: &Connection, chunks: &[RagChunk]) -> Result<(), String> {
-    clear_chunks(conn).map_err(|e| e.to_string())?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| e.to_string())?;
+    clear_chunks(&tx).map_err(|e| e.to_string())?;
     for chunk in chunks {
-        insert_chunk(conn, chunk).map_err(|e| e.to_string())?;
+        insert_chunk(&tx, chunk).map_err(|e| e.to_string())?;
     }
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -130,7 +194,8 @@ pub async fn build_incremental_index(
     };
 
     let sandbox = WorkspaceSandbox::from_root(workspace).map_err(|e| e.to_string())?;
-    let files = collect_text_files(sandbox.root());
+    let ignore_patterns = load_ignore_patterns(sandbox.root());
+    let files = collect_text_files(sandbox.root(), &ignore_patterns);
     let on_disk: HashSet<String> = files
         .iter()
         .filter_map(|file| {
@@ -218,45 +283,79 @@ pub fn persist_incremental_index(
     Ok(())
 }
 
-pub async fn retrieve_context(
+pub async fn retrieve_chunks_for_query(
+    ann_state: &RagAnnState,
+    db_state: &DbState,
     settings: &AiSettings,
-    chunks: &[RagChunk],
     query: &str,
-) -> Result<String, String> {
-    if !settings.rag_enabled || chunks.is_empty() {
-        return Ok(String::new());
+) -> Result<Vec<RetrievedChunk>, String> {
+    if !settings.rag_enabled {
+        return Ok(Vec::new());
+    }
+
+    let count = {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        chunk_count(&conn).map_err(|e| e.to_string())?
+    };
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    if !ann_state.is_ready() {
+        let _ = ann_state.rebuild_from_db(db_state);
     }
 
     let query_embedding = create_embedding(settings, query)
         .await
         .map_err(|e| e.to_string())?;
 
+    let top_k = settings.rag_top_k.max(1) as usize;
+    let search_k = (top_k * ANN_OVERSAMPLE).max(top_k).min(MAX_ANN_SEARCH);
+    let hits = ann_state.search(&query_embedding, search_k);
+
+    if hits.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let ids: Vec<String> = hits.iter().map(|(id, _)| id.clone()).collect();
+    let chunks = {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        super::store::get_chunks_by_ids(&conn, &ids).map_err(|e| e.to_string())?
+    };
+
+    tokio::task::spawn_blocking(move || rank_retrieved_chunks(&query_embedding, &chunks, top_k))
+        .await
+        .map_err(|err| format!("retrieval task failed: {err}"))?
+}
+
+fn rank_retrieved_chunks(
+    query_embedding: &[f32],
+    chunks: &[RagChunk],
+    top_k: usize,
+) -> Result<Vec<RetrievedChunk>, String> {
     let mut scored: Vec<(f32, &RagChunk)> = chunks
         .iter()
         .map(|chunk| {
-            let score = cosine_similarity(&query_embedding, &chunk.embedding);
+            let score = cosine_similarity(query_embedding, &chunk.embedding);
             (score, chunk)
         })
         .collect();
 
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    let top_k = settings.rag_top_k.max(1) as usize;
-    let mut lines = Vec::new();
-
+    let mut results = Vec::new();
     for (score, chunk) in scored.into_iter().take(top_k) {
-        if score < 0.2 {
+        if score < MIN_RETRIEVAL_SCORE {
             continue;
         }
-        lines.push(format!(
-            "[{}] (score {:.2})\n{}",
-            chunk.source_path,
+        results.push(RetrievedChunk {
+            source_path: chunk.source_path.clone(),
             score,
-            truncate(&chunk.content, 600)
-        ));
+            snippet: truncate(&chunk.content, 1200),
+        });
     }
 
-    Ok(lines.join("\n\n"))
+    Ok(results)
 }
 
 pub fn status(conn: &Connection, settings: &AiSettings) -> Result<RagStatus, String> {
@@ -298,15 +397,22 @@ fn file_modified_at(path: &Path) -> Option<DateTime<Utc>> {
     Some(DateTime::<Utc>::from(modified))
 }
 
-fn collect_text_files(root: &Path) -> Vec<PathBuf> {
+fn collect_text_files(root: &Path, ignore_patterns: &[String]) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    walk_files(root, root, &mut files, 0, 8);
+    walk_files(root, root, ignore_patterns, &mut files, 0, 8);
     files.sort();
     files
 }
 
 #[allow(clippy::only_used_in_recursion)]
-fn walk_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>, depth: usize, max_depth: usize) {
+fn walk_files(
+    root: &Path,
+    dir: &Path,
+    ignore_patterns: &[String],
+    files: &mut Vec<PathBuf>,
+    depth: usize,
+    max_depth: usize,
+) {
     if depth > max_depth || files.len() >= MAX_INDEX_FILES {
         return;
     }
@@ -324,16 +430,30 @@ fn walk_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>, depth: usize, m
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
 
-        if name.starts_with('.') || name == "node_modules" || name == "target" || name == "dist" {
-            continue;
-        }
-
         if path.is_dir() {
-            walk_files(root, &path, files, depth + 1, max_depth);
+            if should_ignore_name(&name, ignore_patterns) {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            if should_ignore_relative_path(&relative, ignore_patterns) {
+                continue;
+            }
+            walk_files(root, &path, ignore_patterns, files, depth + 1, max_depth);
             continue;
         }
 
         if !path.is_file() {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(root)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        if should_ignore_relative_path(&relative, ignore_patterns) {
             continue;
         }
 

@@ -9,15 +9,15 @@ import {
 } from "../lib/settings";
 import { createMemory, deleteMemory, listMemories, type Memory } from "../lib/memory";
 import { getRagStatus, indexWorkspaceChanges, indexWorkspaceRag, testEmbeddingConnection } from "../lib/rag";
-import { invokeErrorMessage } from "../lib/invokeError";
-import { formatMessage, isUiLocale, type UiLocale } from "../lib/i18n";
-import { personalityDisplayName } from "./PersonalityCards";
+import { invokeErrorMessage, invokeSettingsErrorMessage } from "../lib/invokeError";
+import { formatMessage, isUiLocale, type UiLocale, type MessageKey } from "../lib/i18n";
 import { useLocale } from "../context/LocaleContext";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { PersonalityCards } from "./PersonalityCards";
 import type { SettingsTab } from "./ChatScreen";
 import type { ThemePreference } from "../lib/settings";
+import { MODEL_PRESETS, detectActivePreset } from "../lib/modelPresets";
+import { MCP_PRESETS } from "../lib/mcpPresets";
 import "./SettingsPanel.css";
 import "./ConfirmDialog.css";
 
@@ -31,10 +31,12 @@ interface SettingsPanelProps {
 interface FormState {
   baseUrl: string;
   apiKey: string;
-  companionModel: string;
-  executorModel: string;
-  companionTemperature: string;
-  executorTemperature: string;
+  agentModel: string;
+  agentTemperature: string;
+  fastModel: string;
+  strongModel: string;
+  autoEscalate: boolean;
+  defaultAgentTier: import("../lib/settings").AgentTier;
   executorVisibility: boolean;
   uiLocale: UiLocale;
   workspacePath: string;
@@ -47,8 +49,11 @@ interface FormState {
   verifyEnabled: boolean;
   verifyCommand: string;
   contextPackEnabled: boolean;
-  personalityId: string;
   commandAllowlistExtra: string;
+  projectRulesEnabled: boolean;
+  projectRulesFile: string;
+  planBeforeEdit: boolean;
+  editorOpenUrl: string;
   ragAutoIndex: boolean;
   taskQueueEnabled: boolean;
   mcpEnabled: boolean;
@@ -60,10 +65,12 @@ function toFormState(settings: AiSettingsView): FormState {
   return {
     baseUrl: settings.baseUrl,
     apiKey: "",
-    companionModel: settings.companionModel,
-    executorModel: settings.executorModel,
-    companionTemperature: String(settings.companionTemperature),
-    executorTemperature: String(settings.executorTemperature),
+    agentModel: settings.agentModel,
+    agentTemperature: String(settings.agentTemperature),
+    fastModel: settings.fastModel,
+    strongModel: settings.strongModel,
+    autoEscalate: settings.autoEscalate,
+    defaultAgentTier: settings.defaultAgentTier ?? "auto",
     executorVisibility: settings.executorVisibility,
     uiLocale: isUiLocale(settings.uiLocale) ? settings.uiLocale : "en",
     workspacePath: settings.workspacePath ?? "",
@@ -76,8 +83,11 @@ function toFormState(settings: AiSettingsView): FormState {
     verifyEnabled: settings.verifyEnabled,
     verifyCommand: settings.verifyCommand ?? "",
     contextPackEnabled: settings.contextPackEnabled,
-    personalityId: settings.personalityId,
     commandAllowlistExtra: settings.commandAllowlistExtra.join("\n"),
+    projectRulesEnabled: settings.projectRulesEnabled ?? true,
+    projectRulesFile: settings.projectRulesFile ?? "",
+    planBeforeEdit: settings.planBeforeEdit ?? false,
+    editorOpenUrl: settings.editorOpenUrl ?? "vscode://file/{path}",
     ragAutoIndex: settings.ragAutoIndex,
     taskQueueEnabled: settings.taskQueueEnabled,
     mcpEnabled: settings.mcpEnabled,
@@ -93,11 +103,12 @@ export function SettingsPanel({
   onSettingsChanged,
 }: SettingsPanelProps) {
   const { locale, setLocale, translate } = useLocale();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "companion");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "connection");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [baselineForm, setBaselineForm] = useState<FormState | null>(null);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  const [confirmMcpOpen, setConfirmMcpOpen] = useState(false);
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [apiKeyMasked, setApiKeyMasked] = useState("");
   const [loading, setLoading] = useState(true);
@@ -203,26 +214,48 @@ export function SettingsPanel({
     setError(null);
     setSuccess(null);
 
-    const companionTemperature = Number.parseFloat(form.companionTemperature);
-    const executorTemperature = Number.parseFloat(form.executorTemperature);
+    const agentTemperature = Number.parseFloat(form.agentTemperature);
     const ragTopK = Number.parseInt(form.ragTopK, 10);
 
-    if (
-      Number.isNaN(companionTemperature) ||
-      Number.isNaN(executorTemperature) ||
-      Number.isNaN(ragTopK)
-    ) {
+    if (Number.isNaN(agentTemperature) || Number.isNaN(ragTopK)) {
       setError(translate("temperaturesInvalid"));
       setSaving(false);
       return;
     }
 
+    if (form.baseUrl.trim() && form.agentModel.trim()) {
+      const probe: UpdateAiSettings = {
+        baseUrl: form.baseUrl,
+        agentModel: form.agentModel,
+        agentTemperature,
+        fastModel: form.fastModel,
+        strongModel: form.strongModel,
+      };
+      if (form.apiKey.trim()) {
+        probe.apiKey = form.apiKey.trim();
+      }
+      try {
+        const test = await testAiConnection(probe);
+        if (!test.ok) {
+          setError(test.message || translate("settingsConnectionTestRequired"));
+          setSaving(false);
+          return;
+        }
+      } catch (err) {
+        setError(invokeErrorMessage(err, translate("settingsConnectionTestRequired")));
+        setSaving(false);
+        return;
+      }
+    }
+
     const update: UpdateAiSettings = {
       baseUrl: form.baseUrl,
-      companionModel: form.companionModel,
-      executorModel: form.executorModel,
-      companionTemperature,
-      executorTemperature,
+      agentModel: form.agentModel,
+      agentTemperature,
+      fastModel: form.fastModel,
+      strongModel: form.strongModel,
+      autoEscalate: form.autoEscalate,
+      defaultAgentTier: form.defaultAgentTier,
       executorVisibility: form.executorVisibility,
       uiLocale: form.uiLocale,
       workspacePath: form.workspacePath.trim() || null,
@@ -234,11 +267,13 @@ export function SettingsPanel({
       verifyEnabled: form.verifyEnabled,
       verifyCommand: form.verifyCommand.trim() || null,
       contextPackEnabled: form.contextPackEnabled,
-      personalityId: form.personalityId,
       commandAllowlistExtra: form.commandAllowlistExtra
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean),
+      projectRulesEnabled: form.projectRulesEnabled,
+      planBeforeEdit: form.planBeforeEdit,
+      editorOpenUrl: form.editorOpenUrl.trim(),
       ragAutoIndex: form.ragAutoIndex,
       taskQueueEnabled: form.taskQueueEnabled,
       mcpEnabled: form.mcpEnabled,
@@ -280,10 +315,9 @@ export function SettingsPanel({
     setError(null);
     setTestResult(null);
 
-    const companionTemperature = Number.parseFloat(form.companionTemperature);
-    const executorTemperature = Number.parseFloat(form.executorTemperature);
+    const agentTemperature = Number.parseFloat(form.agentTemperature);
 
-    if (Number.isNaN(companionTemperature) || Number.isNaN(executorTemperature)) {
+    if (Number.isNaN(agentTemperature)) {
       setError(translate("temperaturesInvalid"));
       setTesting(false);
       return;
@@ -291,10 +325,10 @@ export function SettingsPanel({
 
     const probe: UpdateAiSettings = {
       baseUrl: form.baseUrl,
-      companionModel: form.companionModel,
-      executorModel: form.executorModel,
-      companionTemperature,
-      executorTemperature,
+      agentModel: form.agentModel,
+      agentTemperature,
+      fastModel: form.fastModel,
+      strongModel: form.strongModel,
     };
 
     if (form.apiKey.trim()) {
@@ -311,7 +345,7 @@ export function SettingsPanel({
         }),
       );
     } catch (err) {
-      setError(invokeErrorMessage(err, translate("testConnectionError")));
+      setError(invokeSettingsErrorMessage(err, translate("testConnectionError")));
     } finally {
       setTesting(false);
     }
@@ -419,7 +453,7 @@ export function SettingsPanel({
         }),
       );
     } catch (err) {
-      setError(invokeErrorMessage(err, translate("embeddingTestError")));
+      setError(invokeSettingsErrorMessage(err, translate("embeddingTestError")));
     } finally {
       setTestingEmbedding(false);
     }
@@ -479,7 +513,7 @@ export function SettingsPanel({
               <nav className="settings-tabs" aria-label={translate("settingsTitle")}>
                 {(
                   [
-                    ["companion", "sectionCompanion"],
+                    ["agent", "sectionAgent"],
                     ["connection", "sectionConnection"],
                     ["workspace", "sectionWorkspace"],
                     ["power", "sectionPower"],
@@ -497,19 +531,8 @@ export function SettingsPanel({
                 ))}
               </nav>
 
-              {activeTab === "companion" && (
+              {activeTab === "agent" && (
               <>
-              <section className="settings-section" aria-labelledby="settings-personality">
-                <h3 id="settings-personality" className="settings-section__title">
-                  {translate("personalityId")}
-                </h3>
-                <PersonalityCards
-                  value={form.personalityId}
-                  onChange={(id) => updateField("personalityId", id)}
-                  disabled={saving}
-                />
-              </section>
-
               <section className="settings-section" aria-labelledby="settings-locale">
                 <h3 id="settings-locale" className="settings-section__title">
                   {translate("uiLocale")}
@@ -660,59 +683,142 @@ export function SettingsPanel({
                   {translate("sectionModels")}
                 </h3>
 
+                <div className="settings-presets" role="group" aria-label={translate("modelPresetsLabel")}>
+                  {MODEL_PRESETS.map((preset) => {
+                    const active =
+                      detectActivePreset({
+                        defaultAgentTier: form.defaultAgentTier,
+                        autoEscalate: form.autoEscalate,
+                        planBeforeEdit: form.planBeforeEdit,
+                      }) === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className={`settings-preset${active ? " settings-preset--active" : ""}`}
+                        onClick={() => {
+                          if (!form) return;
+                          setForm({
+                            ...form,
+                            ...(preset.patch.defaultAgentTier
+                              ? { defaultAgentTier: preset.patch.defaultAgentTier }
+                              : {}),
+                            ...(preset.patch.autoEscalate !== undefined
+                              ? { autoEscalate: preset.patch.autoEscalate }
+                              : {}),
+                            ...(preset.patch.planBeforeEdit !== undefined
+                              ? { planBeforeEdit: preset.patch.planBeforeEdit }
+                              : {}),
+                          });
+                        }}
+                      >
+                        <span className="settings-preset__title">{translate(preset.labelKey as MessageKey)}</span>
+                        <span className="settings-preset__desc">{translate(preset.descriptionKey as MessageKey)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="settings-section__help">{translate("modelPresetsHelp")}</p>
+                <p className="settings-field__hint">{translate("modelPresetsApplyHint")}</p>
+
                 <label className="settings-field">
-                  <span className="settings-field__label">{translate("companionModelGeneric")}</span>
+                  <span className="settings-field__label">{translate("fastModel")}</span>
                   <input
                     type="text"
                     className="settings-field__input"
-                    value={form.companionModel}
-                    onChange={(e) => updateField("companionModel", e.target.value)}
+                    value={form.fastModel}
+                    onChange={(e) => updateField("fastModel", e.target.value)}
                     required
                     dir="ltr"
                   />
                 </label>
 
                 <label className="settings-field">
-                  <span className="settings-field__label">{translate("companionTemperature")}</span>
+                  <span className="settings-field__label">{translate("strongModel")}</span>
+                  <input
+                    type="text"
+                    className="settings-field__input"
+                    value={form.strongModel}
+                    onChange={(e) => updateField("strongModel", e.target.value)}
+                    required
+                    dir="ltr"
+                  />
+                </label>
+
+                <label className="settings-field">
+                  <span className="settings-field__label">{translate("agentModel")}</span>
+                  <input
+                    type="text"
+                    className="settings-field__input"
+                    value={form.agentModel}
+                    onChange={(e) => updateField("agentModel", e.target.value)}
+                    required
+                    dir="ltr"
+                  />
+                </label>
+
+                <label className="settings-field settings-field--checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.autoEscalate}
+                    onChange={(e) => updateField("autoEscalate", e.target.checked)}
+                  />
+                  <span>{translate("autoEscalate")}</span>
+                </label>
+                <p className="settings-section__help">{translate("autoEscalateHelp")}</p>
+
+                <label className="settings-field">
+                  <span className="settings-field__label">{translate("defaultAgentTier")}</span>
+                  <select
+                    className="settings-field__input"
+                    value={form.defaultAgentTier}
+                    onChange={(e) =>
+                      updateField("defaultAgentTier", e.target.value as FormState["defaultAgentTier"])
+                    }
+                  >
+                    <option value="auto">{translate("agentTierAuto")}</option>
+                    <option value="quick">{translate("agentTierQuick")}</option>
+                    <option value="standard">{translate("agentTierStandard")}</option>
+                    <option value="deep">{translate("agentTierDeep")}</option>
+                    <option value="explain">{translate("agentTierExplain")}</option>
+                  </select>
+                </label>
+
+                <label className="settings-field">
+                  <span className="settings-field__label">{translate("agentTemperature")}</span>
                   <input
                     type="number"
                     className="settings-field__input"
                     min={0}
                     max={2}
                     step={0.1}
-                    value={form.companionTemperature}
-                    onChange={(e) => updateField("companionTemperature", e.target.value)}
+                    value={form.agentTemperature}
+                    onChange={(e) => updateField("agentTemperature", e.target.value)}
                     required
                     dir="ltr"
                   />
                 </label>
 
+                <label className="settings-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.planBeforeEdit}
+                    onChange={(e) => updateField("planBeforeEdit", e.target.checked)}
+                  />
+                  <span>{translate("planBeforeEdit")}</span>
+                </label>
+                <p className="settings-field__hint">{translate("planBeforeEditHelp")}</p>
+
                 <label className="settings-field">
-                  <span className="settings-field__label">{translate("executorModel")}</span>
+                  <span className="settings-field__label">{translate("editorOpenUrl")}</span>
                   <input
                     type="text"
                     className="settings-field__input"
-                    value={form.executorModel}
-                    onChange={(e) => updateField("executorModel", e.target.value)}
-                    required
+                    value={form.editorOpenUrl}
+                    onChange={(e) => updateField("editorOpenUrl", e.target.value)}
                     dir="ltr"
                   />
-                  <span className="settings-field__hint">{translate("executorModelHint")}</span>
-                </label>
-
-                <label className="settings-field">
-                  <span className="settings-field__label">{translate("executorTemperature")}</span>
-                  <input
-                    type="number"
-                    className="settings-field__input"
-                    min={0}
-                    max={2}
-                    step={0.1}
-                    value={form.executorTemperature}
-                    onChange={(e) => updateField("executorTemperature", e.target.value)}
-                    required
-                    dir="ltr"
-                  />
+                  <span className="settings-field__hint">{translate("editorOpenUrlHelp")}</span>
                 </label>
               </section>
               </>
@@ -802,6 +908,21 @@ export function SettingsPanel({
                   <span>{translate("contextPackEnabled")}</span>
                 </label>
                 <p className="settings-field__hint">{translate("contextPackHelp")}</p>
+
+                <label className="settings-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.projectRulesEnabled}
+                    onChange={(e) => updateField("projectRulesEnabled", e.target.checked)}
+                  />
+                  <span>{translate("projectRulesEnabled")}</span>
+                </label>
+                <p className="settings-field__hint">{translate("projectRulesHelp")}</p>
+                {form.projectRulesFile && (
+                  <p className="settings-field__hint">
+                    {formatMessage(locale, "projectRulesFile", { file: form.projectRulesFile })}
+                  </p>
+                )}
               </section>
               )}
 
@@ -980,13 +1101,43 @@ export function SettingsPanel({
                   <input
                     type="checkbox"
                     checked={form.mcpEnabled}
-                    onChange={(e) => updateField("mcpEnabled", e.target.checked)}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      if (enabled && !form.mcpEnabled) {
+                        setConfirmMcpOpen(true);
+                        return;
+                      }
+                      updateField("mcpEnabled", enabled);
+                    }}
                   />
                   <span>{translate("mcpEnabled")}</span>
                 </label>
 
                 {form.mcpEnabled && (
-                  <label className="settings-field">
+                  <p className="settings-field__help settings-field__help--warning" role="note">
+                    {translate("mcpEnableWarning")}
+                  </p>
+                )}
+
+                {form.mcpEnabled && (
+                  <>
+                    <div className="settings-presets settings-presets--mcp" role="group" aria-label={translate("mcpPresetsLabel")}>
+                      {MCP_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className="settings-preset"
+                          onClick={() => {
+                            updateField("mcpServerCommand", preset.command);
+                            updateField("mcpEnabled", true);
+                          }}
+                        >
+                          <span className="settings-preset__title">{translate(preset.labelKey as MessageKey)}</span>
+                          <span className="settings-preset__desc">{translate(preset.descriptionKey as MessageKey)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <label className="settings-field">
                     <span className="settings-field__label">{translate("mcpServerCommand")}</span>
                     <input
                       type="text"
@@ -997,6 +1148,7 @@ export function SettingsPanel({
                       dir="ltr"
                     />
                   </label>
+                  </>
                 )}
               </section>
               </>
@@ -1041,6 +1193,20 @@ export function SettingsPanel({
         </div>
       </div>
 
+      {confirmMcpOpen && (
+        <ConfirmDialog
+          title={translate("mcpEnableConfirmTitle")}
+          body={translate("mcpEnableWarning")}
+          confirmLabel={translate("mcpEnableConfirmAction")}
+          cancelLabel={translate("confirmDiscardSettingsCancel")}
+          onConfirm={() => {
+            updateField("mcpEnabled", true);
+            setConfirmMcpOpen(false);
+          }}
+          onCancel={() => setConfirmMcpOpen(false)}
+        />
+      )}
+
       {confirmDiscardOpen && (
         <ConfirmDialog
           title={translate("confirmDiscardSettingsTitle")}
@@ -1059,9 +1225,7 @@ export function SettingsPanel({
       {confirmClearOpen && (
         <ConfirmDialog
           title={translate("confirmClearTitle")}
-          body={formatMessage(locale, "confirmClearBodyDynamic", {
-            name: personalityDisplayName(locale, form?.personalityId ?? "luna"),
-          })}
+          body={translate("confirmClearBody")}
           confirmLabel={translate("confirmClearConfirm")}
           cancelLabel={translate("confirmClearCancel")}
           destructive

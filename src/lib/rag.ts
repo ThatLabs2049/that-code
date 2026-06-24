@@ -6,10 +6,23 @@ export interface RagStatus {
   lastIndexedAt: string | null;
 }
 
+export interface RetrievedChunk {
+  sourcePath: string;
+  score: number;
+  snippet: string;
+}
+
 export interface RagIndexResult {
   filesIndexed: number;
   filesSkipped: number;
   chunksStored: number;
+}
+
+export interface IndexProgress {
+  filesDone: number;
+  filesTotal: number;
+  chunksStored: number;
+  currentFile: string;
 }
 
 export interface EmbeddingTestResult {
@@ -47,4 +60,12 @@ export function testEmbeddingConnection(
   probe?: UpdateAiSettings,
 ): Promise<EmbeddingTestResult> {
   return invoke<EmbeddingTestResult>("test_embedding_connection", { probe: probe ?? null });
+}
+
+export function searchCodebase(query: string): Promise<RetrievedChunk[]> {
+  return invoke<RetrievedChunk[]>("search_codebase", { query });
+}
+
+export function cancelRagIndex(): Promise<void> {
+  return invoke<void>("cancel_rag_index");
 }

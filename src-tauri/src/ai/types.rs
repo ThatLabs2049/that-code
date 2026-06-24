@@ -90,7 +90,6 @@ pub struct ChatCompletionMessage {
     pub refusal: Option<String>,
     /// Some reasoning-model proxies expose chain-of-thought here instead of `content`.
     #[serde(default)]
-    #[allow(dead_code)]
     pub reasoning_content: Option<String>,
 }
 

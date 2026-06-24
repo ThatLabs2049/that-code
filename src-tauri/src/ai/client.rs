@@ -18,6 +18,118 @@ pub enum ClientError {
     InvalidResponse(String),
 }
 
+impl ClientError {
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::NotConfigured => {
+                "Add an API key and provider in Settings, then try again.".into()
+            }
+            Self::Http(err) => {
+                if err.is_timeout() {
+                    "The AI request timed out. Agent runs take longer than a connection test — try a faster model or check that your provider is running.".into()
+                } else if err.is_connect() {
+                    "Could not reach the AI provider. Check the base URL in Settings and that the service is running.".into()
+                } else {
+                    format!("Network error talking to the AI provider: {err}")
+                }
+            }
+            Self::Api { status, message } => api_error_user_message(*status, message),
+            Self::InvalidResponse(detail) => invalid_response_user_message(detail),
+        }
+    }
+}
+
+pub fn user_facing_error_text(err: &str) -> String {
+    let trimmed = err.trim();
+    if trimmed.is_empty() {
+        return generic_agent_error();
+    }
+
+    let lower = trimmed.to_lowercase();
+
+    if lower.contains("not configured") || lower.contains("add an api key") {
+        return "Add an API key and provider in Settings, then try again.".into();
+    }
+    if lower.contains("run cancelled") || lower.contains("run stopped") {
+        return "Run stopped — you can ask again anytime.".into();
+    }
+    if tools_api_unsupported(trimmed) {
+        return tools_unsupported_user_message();
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return "The AI request timed out. Agent runs take longer than a connection test — try a faster model or check that your provider is running.".into();
+    }
+    if lower.contains("could not parse") || lower.contains("invalid response") || lower.contains("missing completion") {
+        return invalid_response_user_message(trimmed);
+    }
+    if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") || lower.contains("invalid api key") {
+        return "API authentication failed. Double-check your API key in Settings.".into();
+    }
+    if lower.contains("404") && lower.contains("model") {
+        return "Model not found. Check the Agent and Fast model names in Settings match your provider.".into();
+    }
+    if lower.contains("context cannot be empty") {
+        return "Could not build task context. Send your message again or clear chat history.".into();
+    }
+    if lower.contains("connection") || lower.contains("network") || lower.contains("unreachable") {
+        return "Could not reach the AI provider. Check the base URL in Settings and that the service is running.".into();
+    }
+
+    if trimmed.starts_with("AI client error:") {
+        return user_facing_error_text(trimmed.trim_start_matches("AI client error:").trim());
+    }
+    if trimmed.starts_with("API error (") {
+        return user_facing_error_text(
+            trimmed
+                .split_once("): ")
+                .map(|(_, msg)| msg)
+                .unwrap_or(trimmed),
+        );
+    }
+
+    if trimmed.len() <= 240 && !trimmed.contains("body:") {
+        return trimmed.to_string();
+    }
+
+    generic_agent_error()
+}
+
+fn generic_agent_error() -> String {
+    "Something went wrong during the agent run. Open Settings → test connection, then try a model that supports tool calling (e.g. gpt-4o-mini).".into()
+}
+
+fn tools_unsupported_user_message() -> String {
+    "This model or API does not support tool calling, which ThatCode needs to read and edit files. In Settings, choose a model with function/tool support.".into()
+}
+
+fn api_error_user_message(status: u16, message: &str) -> String {
+    if tools_api_unsupported(message) {
+        return tools_unsupported_user_message();
+    }
+    match status {
+        401 | 403 => "API authentication failed. Double-check your API key in Settings.".into(),
+        404 if message.to_lowercase().contains("model") => {
+            "Model not found. Check the Agent and Fast model names in Settings match your provider.".into()
+        }
+        429 => "Rate limit hit — wait a moment and try again, or switch to a smaller/faster model.".into(),
+        _ if status >= 500 => {
+            "The AI provider returned a server error. Try again in a moment.".into()
+        }
+        _ => format!("API error ({status}): {message}"),
+    }
+}
+
+fn invalid_response_user_message(detail: &str) -> String {
+    let lower = detail.to_lowercase();
+    if lower.contains("model refused") {
+        return format!("The model refused the request: {}", detail.trim_start_matches("model refused: ").trim());
+    }
+    if lower.contains("missing streamed completion") {
+        return "The model returned an empty streamed reply. Try disabling streaming on your provider or pick a different model.".into();
+    }
+    "The model returned an unexpected response. Try Auto or Deep tier, or switch to a model that supports tool calling.".into()
+}
+
 pub fn normalize_base_url(base_url: &str) -> String {
     base_url.trim().trim_end_matches('/').to_string()
 }
@@ -93,10 +205,16 @@ where
 {
     let mut full = String::new();
     let mut buffer = String::new();
+    const MAX_STREAM_BUFFER_BYTES: usize = 1024 * 1024;
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
         buffer.push_str(&String::from_utf8_lossy(&chunk.map_err(ClientError::Http)?));
+        if buffer.len() > MAX_STREAM_BUFFER_BYTES {
+            return Err(ClientError::InvalidResponse(
+                "stream buffer exceeded size limit".into(),
+            ));
+        }
 
         while let Some(newline) = buffer.find('\n') {
             let line = buffer[..newline].trim().to_string();
@@ -147,6 +265,7 @@ struct StreamChoice {
 struct StreamDelta {
     content: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     reasoning_content: Option<String>,
 }
 
@@ -161,12 +280,13 @@ fn stream_delta_text(delta: &StreamDelta) -> Option<String> {
 pub async fn test_connection(settings: &AiSettings) -> Result<AiTestResult, ClientError> {
     ensure_configured(settings)?;
 
-    let model = settings.companion_model.clone();
+    let chat_model = settings.effective_fast_model().to_string();
+    let agent_model = settings.effective_strong_model().to_string();
     let started = Instant::now();
     let content = chat_completion(
         settings,
         ChatCompletionRequest {
-            model: model.clone(),
+            model: chat_model.clone(),
             messages: vec![ChatMessage::user("Reply with the single word: ok")],
             temperature: 0.0,
             max_tokens: Some(256),
@@ -176,10 +296,45 @@ pub async fn test_connection(settings: &AiSettings) -> Result<AiTestResult, Clie
     )
     .await?;
 
+    let mut message = format!("Chat OK on {chat_model} ({})", content.trim());
+    let tools_probe = chat_completion_executor(
+        settings,
+        ChatCompletionRequest {
+            model: agent_model.clone(),
+            messages: vec![ChatMessage::user("Reply with ok")],
+            temperature: 0.0,
+            max_tokens: Some(32),
+            tools: Some(vec![serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "ping",
+                    "description": "Health check",
+                    "parameters": { "type": "object", "properties": {} }
+                }
+            })]),
+            json_object_mode: false,
+        },
+    )
+    .await;
+
+    match tools_probe {
+        Ok(_) => message.push_str(" · tool calling OK"),
+        Err(err) if tools_api_unsupported(&err.to_string()) => {
+            message.push_str(" · WARNING: tool calling not supported — agent mode will fail until you pick a tool-capable model");
+        }
+        Err(err) => {
+            message.push_str(&format!(" · tool calling check failed: {}", err.user_message()));
+        }
+    }
+
     Ok(AiTestResult {
         ok: true,
-        model,
-        message: content.trim().to_string(),
+        model: if chat_model == agent_model {
+            chat_model
+        } else {
+            format!("{chat_model} (chat) / {agent_model} (agent)")
+        },
+        message,
         latency_ms: started.elapsed().as_millis() as u64,
     })
 }
@@ -242,6 +397,13 @@ fn build_client() -> Result<reqwest::Client, ClientError> {
         .map_err(ClientError::Http)
 }
 
+fn build_agent_client() -> Result<reqwest::Client, ClientError> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(ClientError::Http)
+}
+
 pub async fn chat_completion_executor(
     settings: &AiSettings,
     request: ChatCompletionRequest,
@@ -249,7 +411,7 @@ pub async fn chat_completion_executor(
     ensure_configured(settings)?;
 
     let url = chat_completions_url(&settings.base_url);
-    let client = build_client()?;
+    let client = build_agent_client()?;
 
     let body = build_completion_body(&request);
     let body = attach_tools(body, request.tools.as_ref());
@@ -263,16 +425,14 @@ pub async fn chat_completion_executor(
 
 pub fn tools_api_unsupported(message: &str) -> bool {
     let lower = message.to_lowercase();
-    [
-        "tool",
-        "function",
-        "unsupported",
-        "not supported",
-        "unknown parameter",
-        "invalid parameter",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
+    (lower.contains("tool") && lower.contains("not supported"))
+        || (lower.contains("tool_choice") && lower.contains("unknown"))
+        || (lower.contains("tools") && lower.contains("not available"))
+        || (lower.contains("function calling") && lower.contains("not supported"))
+}
+
+fn response_body_hint(body: &str) -> String {
+    format!("body_len={}", body.len())
 }
 
 fn attach_tools(mut body: serde_json::Value, tools: Option<&Vec<serde_json::Value>>) -> serde_json::Value {
@@ -302,7 +462,7 @@ async fn parse_executor_completion(
     }
 
     let parsed: ChatCompletionResponse = serde_json::from_str(&body).map_err(|err| {
-        ClientError::InvalidResponse(format!("{err}; body: {body}"))
+        ClientError::InvalidResponse(format!("{err}; {}", response_body_hint(&body)))
     })?;
 
     let message = parsed
@@ -316,7 +476,13 @@ async fn parse_executor_completion(
         return Err(ClientError::InvalidResponse(format!("model refused: {refusal}")));
     }
 
-    let content = message.text_content();
+    let content = message.text_content().or_else(|| {
+        message
+            .reasoning_content
+            .as_ref()
+            .filter(|text| !text.trim().is_empty())
+            .cloned()
+    });
     let tool_calls = message.tool_calls.filter(|calls| !calls.is_empty());
 
     if tool_calls.is_none() && content.is_none() {
@@ -348,7 +514,7 @@ async fn parse_completion_response(
     }
 
     let parsed: ChatCompletionResponse = serde_json::from_str(&body).map_err(|err| {
-        ClientError::InvalidResponse(format!("{err}; body: {body}"))
+        ClientError::InvalidResponse(format!("{err}; {}", response_body_hint(&body)))
     })?;
 
     let message = parsed
@@ -438,6 +604,18 @@ mod tests {
         let settings = AiSettings::default();
         let err = ensure_configured(&settings).unwrap_err();
         assert!(matches!(err, ClientError::NotConfigured));
+    }
+
+    #[test]
+    fn user_facing_error_maps_tools_unsupported() {
+        let msg = user_facing_error_text("tools parameter is not supported by this model");
+        assert!(msg.contains("tool calling"));
+    }
+
+    #[test]
+    fn user_facing_error_maps_timeout() {
+        let msg = user_facing_error_text("HTTP request failed: operation timed out");
+        assert!(msg.contains("timed out"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
-  "name": "muse",
+  "name": "that-code",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.7.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,7 @@
     "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.3",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",

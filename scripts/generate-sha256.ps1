@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Generates SHA256.txt checksum manifest for Muse release artifacts.
+    Generates SHA256.txt checksum manifest for ThatCode release artifacts.
 
 .DESCRIPTION
     Recursively scans a folder for release binaries and archives, computes

@@ -1,11 +1,64 @@
 # Changelog
 
-All notable changes to Muse are documented in this file.
+All notable changes to ThatCode (formerly Muse) are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Planned
+
+- macOS + Linux installers (Phase 8)
+- Autonomous mission mode (Phase 9)
+
+## [2.7.1] - 2026-06-24
+
+First **ThatCode** Windows release after the Muse → single-agent pivot. Phases 0–7 are in this build.
+
+### Added
+
+- **ThatCode rebrand** — new identity, icons, and `com.thatcode.app` bundle id
+- **Single coding agent** — one tool loop (companion/delegation removed)
+- **Agent tiers** — auto, quick, standard, deep, explain with scout/editor routing
+- **RAG** — local embeddings index, `@codebase`, `.thatcodeignore`, HNSW retrieval, index progress UI
+- **@ context** — `@file`, `@folder`, `@symbol` attachments from composer
+- **Project rules** — `.thatcode/rules.md` / `.cursorrules` injection
+- **Plan-before-edit** — scout pauses for approval; persisted pending plans
+- **Streaming replies** — ack + assistant stream events; final message returned in IPC result
+- **Change review** — unified diffs, per-hunk reject, open-in-editor links
+- **Command palette** — `Ctrl+K` shortcuts
+- **Git sidebar** — status, branch, diff stats
+- **Task queue** — visible sidebar queue for sequential agent tasks
+- **MCP preset gallery** — optional stdio MCP tools (`mcp_*`)
+- **Explore → implement** — read-only scout pass then editor phase
+- **Portable zip** — alongside NSIS + MSI on GitHub Releases
+
+### Changed
+
+- Agent-first UI: chat + tool activity + changes sidebar
+- Windows command runner resolves `npm.cmd` / `npx.cmd` for tool execution
+- Casual chat uses direct completion even when a workspace is set
+- Docs, landing page, and screenshots updated for ThatCode
+
+### Fixed
+
+- Final agent message missing after run completes (`assistantMessage` IPC + non-empty DB persist)
+- Tool activity panel scroll and post-run visibility
+- Agent parse fallbacks for models without native tool calling
+- MCP spawn timeout; ack stream timeout; executor wall-clock limit
+- Full-file rewrites blocked on existing files (must use `edit_file`)
+- Plan/send race, MCP shell injection, pending plan restore on startup
+
+### Security
+
+- MCP server spawn via argv (no shell); session killed on drop
+- Command allowlist + no shell pipes; timed-out child processes killed
+- See [SHA256.txt](./SHA256.txt) and [docs/TRUST.md](./docs/TRUST.md) for release verification
+
 ## [2.1.0] - 2025-06-19
+
+*Released as **Muse**.*
 
 ### Added
 
@@ -56,22 +109,12 @@ First public release of Muse — a local-first desktop AI companion with dual-ag
 ### Added
 
 - **Luna** companion personality — warm, supportive, curious companion chat
-- **Dual-agent pipeline** — companion delegates structured tasks to a hidden executor
-- **OpenAI-compatible API** — configurable base URL, models, and temperatures
-- **Local persistence** — SQLite conversations, messages, and settings
-- **Settings UI** — API key, models, test connection, executor visibility, clear history
-- **Executor activity panel** — optional collapsed view when tasks are delegated
-- **English and Persian UI** — RTL layout with `fa` locale
-- **Accessibility** — skip link, focus trap, keyboard navigation, reduced motion
-- **Desktop builds** — Windows, macOS, and Linux via Tauri 2
+- **Executor agent** — structured task pipeline with sandboxed tools
+- **SQLite persistence** — conversations and settings on device
+- **OpenAI-compatible API** — bring your own key and base URL
+- **Dark UI** — ThatGPT-family calm aesthetic
+- **Windows, macOS, Linux** — Tauri 2 desktop builds
 
-### Technical
-
-- Tauri 2 + React 19 + TypeScript frontend
-- Rust backend with `rusqlite`, `reqwest`, dual-agent orchestrator
-- MIT License
-
-[2.1.0]: https://github.com/Satan2049/muse/releases/tag/v2.1.0
-[2.0.0]: https://github.com/Satan2049/muse/releases/tag/v2.0.0
-[1.5.0]: https://github.com/Satan2049/muse/releases/tag/v1.5.0
-[1.0.0]: https://github.com/Satan2049/muse/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Satan2049/that-code/compare/v2.7.1...HEAD
+[2.7.1]: https://github.com/Satan2049/that-code/releases/tag/v2.7.1
+[2.1.0]: https://github.com/Satan2049/that-code/releases/tag/v2.1.0

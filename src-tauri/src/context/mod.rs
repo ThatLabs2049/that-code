@@ -6,18 +6,71 @@ const MAX_TREE_LINES: usize = 80;
 const MAX_TREE_DEPTH: usize = 3;
 
 pub fn build_context_pack(workspace: &Path) -> String {
-    let mut sections = Vec::new();
+    let tree = project_tree(workspace, workspace, 0, MAX_TREE_DEPTH);
+    let tree_section = if tree.trim().is_empty() {
+        "(empty workspace — no project files yet. Use write_file to create new files.)".to_string()
+    } else {
+        format!("--- Project tree (depth {MAX_TREE_DEPTH}) ---\n{tree}")
+    };
 
-    sections.push(format!(
-        "--- Project tree (depth {MAX_TREE_DEPTH}) ---\n{}",
-        project_tree(workspace, workspace, 0, MAX_TREE_DEPTH)
-    ));
+    let mut sections = vec![tree_section];
 
     if let Some(git) = git_status_short(workspace) {
         sections.push(format!("--- Git status ---\n{git}"));
     }
 
     sections.join("\n\n")
+}
+
+const MAX_RULES_BYTES: usize = 16 * 1024;
+
+pub fn detect_project_rules_file(workspace: &Path) -> Option<String> {
+    for relative in [
+        ".thatcode/rules.md",
+        ".cursorrules",
+        "AGENTS.md",
+    ] {
+        if workspace.join(relative).is_file() {
+            return Some(relative.into());
+        }
+    }
+    None
+}
+
+pub fn is_workspace_empty(workspace: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(workspace) else {
+        return true;
+    };
+
+    !entries.filter_map(|e| e.ok()).any(|entry| {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        !name.starts_with('.') || name == ".git"
+    })
+}
+
+pub fn load_project_rules(workspace: &Path) -> Option<String> {
+    for relative in [
+        ".thatcode/rules.md",
+        ".cursorrules",
+        "AGENTS.md",
+    ] {
+        let path = workspace.join(relative);
+        if !path.is_file() {
+            continue;
+        }
+        let content = fs::read_to_string(&path).ok()?;
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let capped = if trimmed.len() > MAX_RULES_BYTES {
+            format!("{}… [truncated]", &trimmed[..MAX_RULES_BYTES])
+        } else {
+            trimmed.to_string()
+        };
+        return Some(format!("(from {relative})\n{capped}"));
+    }
+    None
 }
 
 #[allow(clippy::only_used_in_recursion)]

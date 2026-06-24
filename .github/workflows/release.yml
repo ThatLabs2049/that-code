@@ -1,211 +1,71 @@
 name: Release
 
-
-
 on:
-
   push:
-
     tags:
-
       - v*
 
-
-
 permissions:
-
   contents: write
 
-
-
 jobs:
-
   build:
-
-    name: Build (${{ matrix.platform }})
-
-    strategy:
-
-      fail-fast: false
-
-      matrix:
-
-        include:
-
-          - platform: ubuntu-22.04
-
-            args: --target x86_64-unknown-linux-gnu
-
-          - platform: windows-latest
-
-            args: ""
-
-          - platform: macos-latest
-
-            args: ""
-
-
-
-    runs-on: ${{ matrix.platform }}
-
+    name: Build (Windows)
+    runs-on: windows-latest
     steps:
-
       - uses: actions/checkout@v4
 
-
-
       - uses: actions/setup-node@v4
-
         with:
-
           node-version: 20
-
           cache: npm
-
-
 
       - uses: dtolnay/rust-toolchain@stable
 
-
-
-      - name: Install Linux dependencies
-
-        if: matrix.platform == 'ubuntu-22.04'
-
-        run: |
-
-          sudo apt-get update
-
-          sudo apt-get install -y \
-
-            libwebkit2gtk-4.1-dev \
-
-            libappindicator3-dev \
-
-            librsvg2-dev \
-
-            patchelf
-
-
-
       - name: Install frontend dependencies
-
         run: npm ci
 
-
-
       - uses: tauri-apps/tauri-action@v0
-
         env:
-
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
         with:
-
           tagName: ${{ github.ref_name }}
-
-          releaseName: Muse ${{ github.ref_name }}
-
+          releaseName: ThatCode ${{ github.ref_name }}
           releaseBody: |
+            ## ThatCode v2.7.1
 
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+            Local coding agent for Windows — repo agent on your machine. Bring your own API.
 
+            ### Install
 
+            - **NSIS** — `ThatCode_2.7.1_x64-setup.exe`
+            - **MSI** — `ThatCode_2.7.1_x64_en-US.msi`
+            - **Portable** — `ThatCode_2.7.1_x64-portable.zip`
 
-            ## Installers
+            ### Verify downloads
 
+            Compare your file to **`SHA256.txt`** (attached). See [docs/TRUST.md](https://github.com/${{ github.repository }}/blob/main/docs/TRUST.md).
 
+            ### VirusTotal (maintainer scans)
 
-            Download the bundle for your platform below.
-
-
-
-            ## Verify downloads
-
-
-
-            The attached **`SHA256.txt`** lists SHA256 checksums for every release asset.
-
-            Compare your file hash before installing — see [docs/TRUST.md](https://github.com/${{ github.repository }}/blob/main/docs/TRUST.md) for Windows, macOS, and Linux examples.
-
-
+            - [NSIS .exe](https://www.virustotal.com/gui/file/26754bc38d74085603d7ab2799c9c1336a19e1cae5936d6f926e045cf14be4ed?nocache=1) — 2 heuristic flags (unsigned app)
+            - [MSI](https://www.virustotal.com/gui/file/62881009afcfe2e1b1ac661117999b5a684b2e0eb653db61dda6fbc0bfdc65dd?nocache=1) — clean
+            - [Portable zip](https://www.virustotal.com/gui/file/499f0c9b29199420424021cf2569258fdd965bb15624ac1413773335a2d791fb?nocache=1) — 1 ML heuristic
 
             **Trusted source:** [GitHub Releases](https://github.com/${{ github.repository }}/releases) only.
 
+            Full notes: [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
           releaseDraft: true
-
           prerelease: false
 
-          args: ${{ matrix.args }}
-
-
-
-      - name: Generate SHA256 manifest (platform)
-
+      - name: Generate SHA256 manifest
         shell: pwsh
-
         run: |
-
           ./scripts/generate-sha256.ps1 `
-
             -FolderPath src-tauri/target/release/bundle `
-
-            -OutputPath SHA256-${{ matrix.platform }}.txt
-
-
-
-      - uses: actions/upload-artifact@v4
-
-        with:
-
-          name: sha256-${{ matrix.platform }}
-
-          path: SHA256-${{ matrix.platform }}.txt
-
-
-
-  merge-checksums:
-
-    name: Upload SHA256.txt
-
-    needs: build
-
-    runs-on: ubuntu-latest
-
-    steps:
-
-      - uses: actions/download-artifact@v4
-
-        with:
-
-          path: sha256-parts
-
-          pattern: sha256-*
-
-          merge-multiple: true
-
-
-
-      - name: Merge SHA256 manifests
-
-        run: |
-
-          cat sha256-parts/*.txt | sort -u > SHA256.txt
-
-          echo "Merged checksum manifest:"
-
-          cat SHA256.txt
-
-
+            -OutputPath SHA256.txt
 
       - name: Upload SHA256.txt to release
-
         env:
-
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-        run: |
-
-          gh release upload "${{ github.ref_name }}" SHA256.txt --clobber
-
-
+        run: gh release upload "${{ github.ref_name }}" SHA256.txt --clobber

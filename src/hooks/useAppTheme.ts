@@ -8,30 +8,23 @@ function resolveTheme(preference: ThemePreference): "dark" | "light" {
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
-export function applyDocumentTheme(
-  personalityId: string,
-  themePreference: ThemePreference,
-): void {
+export function applyDocumentTheme(themePreference: ThemePreference): void {
   const root = document.documentElement;
-  root.dataset.personality = personalityId || "luna";
   root.dataset.theme = themePreference;
   root.dataset.resolvedTheme = resolveTheme(themePreference);
 }
 
 export function useAppTheme() {
-  const [personalityId, setPersonalityId] = useState("luna");
   const [themePreference, setThemePreference] = useState<ThemePreference>("system");
 
   const refreshTheme = useCallback(async () => {
     try {
       const settings = await getSettings();
-      const pid = settings.personalityId || "luna";
       const theme = (settings.themePreference || "system") as ThemePreference;
-      setPersonalityId(pid);
       setThemePreference(theme);
-      applyDocumentTheme(pid, theme);
+      applyDocumentTheme(theme);
     } catch {
-      applyDocumentTheme("luna", "system");
+      applyDocumentTheme("system");
     }
   }, []);
 
@@ -43,10 +36,10 @@ export function useAppTheme() {
     if (themePreference !== "system") return;
 
     const media = window.matchMedia("(prefers-color-scheme: light)");
-    const handler = () => applyDocumentTheme(personalityId, "system");
+    const handler = () => applyDocumentTheme("system");
     media.addEventListener("change", handler);
     return () => media.removeEventListener("change", handler);
-  }, [themePreference, personalityId]);
+  }, [themePreference]);
 
-  return { personalityId, themePreference, refreshTheme };
+  return { themePreference, refreshTheme };
 }

@@ -1,51 +1,47 @@
 ---
 alwaysApply: true
 ---
-# Muse — Project Rules
+# ThatCode — Project Rules
 
-You are a senior software engineer on **Muse** — an open-source Tauri desktop app for dual-agent AI companionship.
+You are a senior software engineer on **ThatCode** — an open-source Tauri desktop app for **local coding agents** with a simple UI.
 
-**Slogan:** Characters should not only respond. Characters should live.
+**Tagline:** Repo agent on your machine. Bring your own API.
+
+**Family:** Sibling to ThatGPT (separate repo). ThatGPT tone — plain, serious, local-first. No companion lore.
 
 ## Before writing code
 
-1. Read [`PRODUCT.md`](PRODUCT.md) — scope, UX, Luna personality, visual design (§16).
-2. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) — stack, run, deploy, API.
-3. Read [`AGENTS.md`](AGENTS.md) — Companion and Executor agent contracts.
-4. Check [`ROADMAP.md`](ROADMAP.md) for current priorities.
-5. Create a short implementation plan.
-6. Identify affected files.
-7. Ask for clarification if requirements are ambiguous.
+1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) — stack and request flow.
+2. Read [`docs/temp/thatcode-todo.md`](docs/temp/thatcode-todo.md) — phase checklist.
+3. Check [`ROADMAP.md`](ROADMAP.md) for milestone table.
+4. Create a short implementation plan for non-trivial work.
 
-## Product constraints
+## Product constraints (v3)
 
-- **Local-first** — SQLite; conversation history on device
-- **Dual-agent** — Companion (Luna) user-facing; Executor hidden by default
-- **Companion-first UX** — one chat thread; never expose raw executor as primary voice
-- **RTL-safe** — English-first but Persian support too; verify bidirectional text on touched screens
+- **Local-first** — SQLite; settings and keys on device
+- **Single agent** — no dual companion/executor UX
+- **Windows v1** — NSIS + MSI + portable zip (v2.7.1 shipped); macOS/Linux Phase 8
+- **Agent-first UI** — chat + diffs + tool timeline; not a full IDE
+- **English-first** for v3.0; RTL later if needed
 
 ## Coding rules
 
 - Keep changes minimal and focused.
 - Do not modify unrelated files.
 - Avoid unnecessary abstractions.
-- Prioritize maintainability over cleverness.
 - Do not add dependencies unless justified.
 
 ## Quality requirements
 
-- Tests must pass.
-- Linting must pass.
+- Tests must pass (`npm run test:rust`, `npm run typecheck`, `npm run build`).
+- Linting must pass (`npm run lint:rust`).
 - No dead code.
-- No duplicated logic.
 
 ## UI requirements
 
-- A modern, peaceful look (see PRODUCT.md §16)
-- Consistent spacing and typography
-- Accessibility matters — contrast on dark bases, labels, reduce motion
-- Avoid visual regressions against warm companion identity
-- Review UI impact before finishing
+- Serious, calm dark UI (ThatGPT family — not companion theatrical)
+- Accessibility: contrast, labels, reduced motion
+- Windows-native feel (Segoe UI stack, test on Win11)
 
 ## Before completing a task
 

@@ -22,11 +22,10 @@ pub fn update_settings(
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut settings = settings::load(&conn).map_err(db_error)?;
     let locale_changed = update.ui_locale.is_some();
-    let personality_changed = update.personality_id.is_some();
     settings.apply_update(update)?;
     settings::save(&conn, &settings).map_err(db_error)?;
 
-    if locale_changed || personality_changed {
+    if locale_changed {
         db::refresh_seed_greeting_if_pristine(&conn).map_err(db_error)?;
     }
 
@@ -51,5 +50,5 @@ pub async fn test_ai_connection(
 
     ai::test_connection(&settings)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.user_message())
 }

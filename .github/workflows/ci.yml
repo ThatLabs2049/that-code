@@ -1,5 +1,7 @@
 name: CI
 
+# Tests run on Ubuntu for cost/speed. Release builds are Windows-only (see release.yml).
+
 on:
   push:
     branches: [main, master]

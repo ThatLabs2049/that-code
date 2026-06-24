@@ -3,6 +3,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
+use std::sync::Arc;
+
+use crate::tools::parse_argv_line;
 use serde_json::{json, Value};
 
 static MCP_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -25,22 +28,19 @@ impl McpSession {
             return Err("MCP server command is empty".into());
         }
 
-        let child = if cfg!(windows) {
-            Command::new("cmd")
-                .args(["/C", command_line])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-        } else {
-            Command::new("sh")
-                .args(["-lc", command_line])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-        }
-        .map_err(|err| format!("failed to spawn MCP server: {err}"))?;
+        let argv = parse_argv_line(command_line)?;
+        let program = argv
+            .first()
+            .ok_or_else(|| "MCP server command is empty".to_string())?;
+        let args: Vec<&str> = argv[1..].iter().map(String::as_str).collect();
+
+        let child = Command::new(program)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|err| format!("failed to spawn MCP server: {err}"))?;
 
         let session = Self {
             child: Mutex::new(child),
@@ -51,7 +51,7 @@ impl McpSession {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "muse", "version": env!("CARGO_PKG_VERSION") }
+                "clientInfo": { "name": "that-code", "version": env!("CARGO_PKG_VERSION") }
             }),
         )?;
         session.notify("notifications/initialized", json!({}))?;
@@ -131,11 +131,17 @@ impl McpSession {
             stdin.flush().map_err(|err| err.to_string())?;
         }
 
+        let started = std::time::Instant::now();
+        const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
         let mut child = self.child.lock().map_err(|_| "MCP lock poisoned".to_string())?;
         let stdout = child.stdout.as_mut().ok_or("MCP stdout unavailable")?;
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         for _ in 0..50 {
+            if started.elapsed() >= READ_TIMEOUT {
+                return Err("timed out waiting for MCP response".into());
+            }
             line.clear();
             reader.read_line(&mut line).map_err(|err| err.to_string())?;
             if line.trim().is_empty() {
@@ -154,6 +160,42 @@ impl McpSession {
             }
         }
         Err("timed out waiting for MCP response".into())
+    }
+}
+
+pub async fn spawn_async(command_line: &str) -> Result<Arc<McpSession>, String> {
+    let command_line = command_line.to_string();
+    tokio::task::spawn_blocking(move || McpSession::spawn(&command_line).map(Arc::new))
+        .await
+        .map_err(|err| format!("MCP spawn task failed: {err}"))?
+}
+
+pub async fn list_tools_async(session: &Arc<McpSession>) -> Result<Vec<McpTool>, String> {
+    let session = Arc::clone(session);
+    tokio::task::spawn_blocking(move || session.list_tools())
+        .await
+        .map_err(|err| format!("MCP list tools task failed: {err}"))?
+}
+
+pub async fn call_tool_async(
+    session: &Arc<McpSession>,
+    name: &str,
+    arguments: &Value,
+) -> Result<String, String> {
+    let session = Arc::clone(session);
+    let name = name.to_string();
+    let arguments = arguments.clone();
+    tokio::task::spawn_blocking(move || session.call_tool(&name, &arguments))
+        .await
+        .map_err(|err| format!("MCP tool task failed: {err}"))?
+}
+
+impl Drop for McpSession {
+    fn drop(&mut self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 

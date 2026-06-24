@@ -1,36 +1,29 @@
-# Muse — Architecture
+# ThatCode — Architecture
 
-## Overview
+**ThatCode** is a local-first Tauri desktop app: React/TypeScript UI, Rust backend, OpenAI-compatible API, SQLite persistence.
 
-Muse is a Tauri desktop application with a React/TypeScript frontend and a Rust backend. AI orchestration runs through OpenAI-compatible APIs. Conversation history persists in local SQLite.
-
-The core architectural pattern is **dual-agent orchestration**: a high-temperature Companion agent handles user-facing conversation; a low-temperature Executor agent handles structured planning and task completion when needed.
+**Status:** **v2.7.1** shipped (Phases 0–7). Phase 8–9 in [ROADMAP.md](./ROADMAP.md).  
+**Historical:** Muse v2.x used a dual companion + executor pipeline (removed Phase 2). See [DECISIONS.md](./DECISIONS.md) ADR-014.
 
 ---
 
 ## System diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Tauri Desktop App                        │
-├─────────────────────────────────────────────────────────────┤
+┌──────────────────────────────────────────────────────────────┐
+│  Tauri 2.x (Windows v1: NSIS + MSI)                          │
+├──────────────────────────────────────────────────────────────┤
 │  React UI (src/)                                             │
-│  ├── ChatScreen                                              │
-│  ├── Settings                                                │
-│  └── Optional ExecutorActivityPanel                          │
-├─────────────────────────────────────────────────────────────┤
-│  Rust Backend (src-tauri/)                                   │
-│  ├── Commands (IPC)                                          │
-│  ├── Orchestrator                                            │
-│  ├── CompanionService                                        │
-│  ├── ExecutorService                                         │
-│  ├── AI Client (OpenAI-compatible)                           │
-│  └── SQLite (conversations, messages, settings)              │
-└─────────────────────────────────────────────────────────────┘
+│    ChatScreen · Composer (@file/@symbol) · Change review     │
+│    Tool timeline · Settings · Command palette (Ctrl+K)       │
+├──────────────────────────────────────────────────────────────┤
+│  Rust (src-tauri/)                                           │
+│    commands/ · orchestrator/ · agents/ · tools/ · rag/       │
+│    db/ (SQLite) · mcp/ · workspace/                          │
+└──────────────────────────────────────────────────────────────┘
                               │
                               ▼
-                    OpenAI-compatible API
-                    (OpenAI, Azure, local proxy, etc.)
+              OpenAI-compatible API (cloud or local, e.g. Ollama)
 ```
 
 ---
@@ -38,58 +31,46 @@ The core architectural pattern is **dual-agent orchestration**: a high-temperatu
 ## Request flow
 
 ```
-User message
+User message (+ optional @ attachments)
     │
     ▼
-┌───────────────────┐
-│  Chat UI          │  invoke: send_message
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐
-│  Orchestrator     │  persist user message
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐
-│  Companion Agent  │  analyze intent, respond or delegate
-└─────────┬─────────┘
-          │
-          ├── no execution needed ──► companion reply ──► UI
-          │
-          └── execution needed
+send_message (IPC)
+    │
+    ▼
+Orchestrator::run_turn
+    ├── casual chat? ──► direct chat completion (streamed)
+    │
+    └── agent task
+            ├── enrich: context pack, memories, rules, RAG, attachments
+            ├── optional: explore-then-implement (scout → editor)
+            └── AgentTier → RunConfig (scout / editor phases, models)
                     │
                     ▼
-          ┌───────────────────┐
-          │  TaskSpec builder │  structured objective JSON
-          └─────────┬─────────┘
+            agents::executor (tool loop)
                     │
                     ▼
-          ┌───────────────────┐
-          │  Executor Agent   │  plan, tools, structured output
-          └─────────┬─────────┘
+            Persist message + executor_run + file diffs
                     │
                     ▼
-          ┌───────────────────┐
-          │  Companion Agent  │  format result for user
-          └─────────┬─────────┘
-                    │
-                    ▼
-               UI (single thread)
+            UI: stream tokens, activity panel, change review
 ```
+
+**Agent tiers:** `auto`, `quick`, `standard`, `deep`, `explain`. Standard uses fast model for scout (read-only) and strong model for editor when `auto_escalate` is on.
+
+**Plan gate:** When `plan_before_edit` is enabled, scout pauses for user approval before editor phase (`respond_to_agent_plan`).
 
 ---
 
 ## Tech stack
 
-| Layer | Technology | Notes |
-|-------|------------|-------|
-| Shell | Tauri 2.x | Cross-platform desktop |
-| Frontend | React 18+, TypeScript | Vite bundler (typical Tauri setup) |
-| Backend | Rust | Tauri commands, orchestration, persistence |
-| AI | OpenAI-compatible HTTP API | Configurable base URL and models |
-| Database | SQLite | Via `rusqlite` or Tauri plugin |
-| IPC | Tauri `invoke` | Frontend ↔ Rust |
+| Layer | Technology |
+|-------|------------|
+| Shell | Tauri 2.x |
+| Frontend | React, TypeScript, Vite |
+| Backend | Rust |
+| AI | OpenAI-compatible chat + embeddings |
+| Database | SQLite (`rusqlite`) |
+| IPC | Tauri `invoke` + events (`assistant-stream`, `executor-progress`) |
 
 ---
 
@@ -97,231 +78,130 @@ User message
 
 ```
 /
-├── README.md
-├── AGENTS.md
-├── ARCHITECTURE.md
-├── PRODUCT.md
-├── ROADMAP.md
-├── DECISIONS.md
-├── docs/
-│   ├── getting-started.md
-│   ├── development.md
-│   └── contributing.md
-├── src/                    # React frontend
-│   ├── components/
-│   ├── hooks/
-│   ├── lib/
-│   ├── styles/
-│   └── App.tsx
-└── src-tauri/              # Rust backend
-    ├── src/
-    │   ├── main.rs
-    │   ├── lib.rs
-    │   ├── commands/       # Tauri IPC handlers
-    │   ├── orchestrator/   # Dual-agent pipeline
-    │   ├── agents/         # Companion + Executor
-    │   ├── ai/             # HTTP client, prompts
-    │   └── db/             # SQLite schema + queries
-    ├── Cargo.toml
-    └── tauri.conf.json
+├── src/                      # React frontend
+│   ├── components/           # Chat, settings, sidebar panels
+│   ├── hooks/                # useChat, useRagStatus, useAppTheme
+│   ├── lib/                  # IPC wrappers, i18n, settings types
+│   └── styles/               # tokens.css, global.css
+├── src-tauri/
+│   ├── src/
+│   │   ├── commands/         # Tauri IPC handlers
+│   │   ├── orchestrator/     # run_turn, RAG/task enrichment
+│   │   ├── agents/           # executor, profile (tiers), task specs
+│   │   ├── tools/            # Sandbox, grep, edit, verify, git
+│   │   ├── rag/              # Chunking, embeddings, index
+│   │   ├── workspace/        # Path/symbol search, git status
+│   │   ├── changes/          # Diffs, hunks, revert
+│   │   ├── ai/               # HTTP client, prompts
+│   │   └── db/               # Schema, messages, task queue
+│   └── tauri.conf.json
+└── docs/                     # TRUST, development, temp plans
 ```
 
 ---
 
-## Frontend architecture
+## Frontend
 
-### Responsibilities
+| Area | Responsibility |
+|------|----------------|
+| `ChatScreen` | Layout, sidebar (git, task queue, activity, diffs) |
+| `Composer` | Message input, tier select, `@` context picker, explore→edit |
+| `useChat` | Messages, send/cancel, stream listeners, plan approval |
+| `SettingsPanel` | API, workspace, agent models, RAG, MCP |
+| `CommandPalette` | `Ctrl+K` shortcuts |
 
-- Render chat UI and settings
-- Invoke Tauri commands for send/receive
-- Subscribe to streaming events (if implemented)
-- Apply visual design tokens (see PRODUCT.md §16)
-- Handle RTL via `dir` attribute and logical CSS properties
+**Theme:** `themePreference` (`dark` / `light` / `system`) → `data-theme` on `<html>`; tokens in `src/styles/tokens.css`.
 
-### Key components (planned)
-
-| Component | Purpose |
-|-----------|---------|
-| `ChatScreen` | Main conversation view |
-| `MessageList` | Scrollable message history |
-| `MessageBubble` | User vs companion styling |
-| `Composer` | Input and send |
-| `SettingsPanel` | API config, preferences |
-| `ExecutorPanel` | Optional collapsed executor activity |
-
-### State
-
-- Conversation messages loaded from Rust on mount
-- Optimistic UI for user sends (optional v1)
-- Settings from Rust/local storage
+**i18n:** English + Persian (`fa`), RTL via `dir` on document root.
 
 ---
 
-## Backend architecture
+## Backend modules
 
-### Modules
-
-| Module | Responsibility |
-|--------|----------------|
-| `commands` | Tauri IPC entry points |
-| `orchestrator` | Routes messages through companion/executor pipeline |
-| `agents::companion` | Companion prompts, intent classification, formatting |
-| `agents::executor` | Task execution, planning, tool calls |
-| `ai::client` | OpenAI-compatible HTTP client |
-| `ai::prompts` | System prompts and templates |
-| `db` | Migrations, CRUD for conversations and messages |
-
-### Tauri commands (planned)
-
-| Command | Input | Output |
-|---------|-------|--------|
-| `send_message` | `{ conversation_id, content }` | Stream or final companion message |
-| `list_conversations` | — | Conversation summaries |
-| `get_messages` | `{ conversation_id }` | Message list |
-| `get_settings` | — | App settings |
-| `update_settings` | Settings payload | OK / error |
-| `clear_history` | `{ conversation_id? }` | OK |
-
-Exact signatures will be defined during implementation.
+| Module | Role |
+|--------|------|
+| `commands::chat` | `send_message`, `clear_history`, streaming |
+| `commands::rag` | Index workspace, search codebase |
+| `commands::workspace` | `search_workspace_paths`, `search_workspace_symbols`, git status |
+| `commands::changes` | Diff, hunk reject, revert, open in editor |
+| `orchestrator` | Route turn, enrich task, run agent or chat |
+| `agents::executor` | Multi-step tool loop with progress callbacks |
+| `agents::profile` | Tier → `RunConfig` (models, scout/editor limits) |
+| `tools` | Sandboxed file ops + allowlisted `run_command` |
+| `rag` | Local embeddings index in SQLite |
+| `mcp` | Optional stdio MCP server for extra tools |
+| `db` | Conversations, messages (`user` / `companion` role), settings blob |
 
 ---
 
-## Data model
+## Key IPC commands
 
-### SQLite schema (v1)
-
-```sql
--- conversations
-CREATE TABLE conversations (
-    id          TEXT PRIMARY KEY,
-    title       TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-
--- messages (user-visible thread)
-CREATE TABLE messages (
-    id               TEXT PRIMARY KEY,
-    conversation_id  TEXT NOT NULL REFERENCES conversations(id),
-    role             TEXT NOT NULL,  -- 'user' | 'companion'
-    content          TEXT NOT NULL,
-    created_at       TEXT NOT NULL
-);
-
--- executor_runs (optional visibility)
-CREATE TABLE executor_runs (
-    id               TEXT PRIMARY KEY,
-    conversation_id  TEXT NOT NULL REFERENCES conversations(id),
-    message_id       TEXT REFERENCES messages(id),
-    task_spec        TEXT NOT NULL,  -- JSON
-    result           TEXT,           -- JSON or text
-    status           TEXT NOT NULL,  -- 'pending' | 'running' | 'done' | 'error'
-    created_at       TEXT NOT NULL,
-    completed_at     TEXT
-);
-
--- settings (key-value)
-CREATE TABLE settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-```
+| Command | Purpose |
+|---------|---------|
+| `send_message` | User turn; optional `agentTier`, `attachments`, `exploreThenImplement` |
+| `cancel_run` | Stop in-flight agent |
+| `respond_to_agent_plan` | Approve/reject scout plan |
+| `get_settings` / `update_settings` | Local preferences + API config |
+| `index_workspace_rag` / `search_codebase` | RAG index and retrieval |
+| `get_executor_run_changes` | File diffs for review |
+| `list_queued_tasks` | Task queue sidebar |
+| `get_workspace_git_status` | Branch + diff stat |
 
 ---
 
-## AI integration
+## Data model (SQLite)
 
-### OpenAI-compatible client
+- **conversations** — single active chat (v3)
+- **messages** — `user` | `companion` (assistant content stored as `companion`)
+- **executor_runs** — task spec, result JSON, file changes, status
+- **settings** — JSON blob (`ai_settings` key)
+- **rag_chunks** — embedding vectors + source paths
+- **task_queue** — sequential delegated tasks per conversation
+- **memories** — user notes injected into agent context
 
-- Configurable `base_url`, `api_key`, and model names
-- Separate model config for companion (higher temperature) and executor (lower temperature)
-- Standard chat completions API
-
-### Task specification (companion → executor)
-
-Structured JSON passed between agents. Example shape:
-
-```json
-{
-  "objective": "Create a 30-day freelancing starter plan",
-  "context": "User is new to freelancing, unsure where to begin",
-  "constraints": ["actionable steps", "beginner-friendly"],
-  "expected_output": "step-by-step plan with weekly milestones"
-}
-```
-
-Exact schema defined in [AGENTS.md](./AGENTS.md).
+App data: `%APPDATA%/com.thatcode.app/` (Windows). DB filename `muse.db` (legacy name, unchanged for upgrade path).
 
 ---
 
-## Orchestration logic
+## Agent tools (workspace sandbox)
 
-1. **Persist** incoming user message.
-2. **Companion pass** — send recent history + system prompt; companion returns either:
-   - Direct reply (no execution), or
-   - Reply stub + `TaskSpec` for executor.
-3. **Executor pass** (if needed) — run with task spec; capture result and optional activity log.
-4. **Companion format pass** — companion receives executor output; produces final user-facing message.
-5. **Persist** companion message (and executor run record if applicable).
-6. **Return** to frontend.
+Read-only: `list_dir`, `read_file`, `grep`, `search_files`, `file_info`  
+Mutating: `write_file`, `edit_file`, `delete_file`, `create_dir`, `run_command`, git helpers  
+Verify: post-edit test command (auto-detect or configured)  
+Optional: MCP tools prefixed `mcp_*`
 
-Intent classification may be explicit (companion outputs structured flag) or implicit (presence of `TaskSpec` in companion response). See [DECISIONS.md](./DECISIONS.md).
+Commands run in the selected project folder only; path traversal blocked.
 
 ---
 
-## Security
+## Security & trust
 
-- API keys stored locally (OS keychain preferred; fallback encrypted or plain local settings for MVP)
+- API keys stored locally in SQLite settings (device-only)
 - No telemetry by default
-- Executor tools (future) run with user consent and sandboxing TBD
-- Input sanitization before persistence and API calls
+- Change review + per-file / per-hunk revert before trusting edits
+- Release binaries: SHA256 manifest — [docs/TRUST.md](docs/TRUST.md)
 
 ---
 
-## Build and run
-
-### Prerequisites
-
-- Node.js LTS
-- Rust stable
-- Platform Tauri dependencies
-
-### Commands
+## Build & test
 
 ```bash
-npm install
-npm run tauri dev      # development
-npm run tauri build    # production bundle
+npm ci
+npm run tauri dev          # development
+npm run build && npm run test:rust && npm run lint:rust
+npm run tauri build        # Windows NSIS + MSI
 ```
 
-See [docs/development.md](./docs/development.md).
-
----
-
-## Deployment
-
-- **Windows:** `.msi` / NSIS installer
-- **macOS:** `.dmg` / `.app`
-- **Linux:** `.deb`, AppImage, or distro-specific packages
-
-Distribution via GitHub Releases for open-source builds.
-
----
-
-## Testing strategy
-
-| Layer | Approach |
-|-------|----------|
-| Rust | Unit tests for orchestrator, task spec parsing, DB |
-| Frontend | Component tests for chat UI |
-| Integration | Mock AI client for pipeline tests |
-| E2E | Optional; manual QA for v1 |
+See [docs/development.md](docs/development.md).
 
 ---
 
 ## Related documents
 
-- [AGENTS.md](./AGENTS.md) — agent behavior and prompts
-- [PRODUCT.md](./PRODUCT.md) — UX and scope
-- [DECISIONS.md](./DECISIONS.md) — architectural choices
-- [ROADMAP.md](./ROADMAP.md) — implementation phases
+| Document | Purpose |
+|----------|---------|
+| [README.md](README.md) | Install, features, screenshots |
+| [DECISIONS.md](DECISIONS.md) | ADRs (incl. Muse → ThatCode pivot) |
+| [ROADMAP.md](ROADMAP.md) | Phase milestones |
+| [docs/temp/thatcode-todo.md](docs/temp/thatcode-todo.md) | Phase checklist |
+| [docs/TRUST.md](docs/TRUST.md) | Verify downloads |

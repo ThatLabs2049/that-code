@@ -64,6 +64,14 @@ pub fn complete_executor_run(
     Ok(())
 }
 
+pub fn update_executor_run_result(conn: &Connection, run_id: &str, result: &str) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE executor_runs SET result = ?1 WHERE id = ?2",
+        params![result, run_id],
+    )?;
+    Ok(())
+}
+
 pub fn get_executor_run(conn: &Connection, run_id: &str) -> SqlResult<ExecutorRun> {
     conn.query_row(
         "SELECT id, conversation_id, message_id, task_spec, result, status, created_at, completed_at

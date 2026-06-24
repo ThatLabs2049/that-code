@@ -1,9 +1,12 @@
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use super::handlers::ToolResult;
-use super::sandbox::WorkspaceSandbox;
+use super::sandbox::{truncate_at_byte_boundary, WorkspaceSandbox};
 
 const MAX_OUTPUT_BYTES: usize = 32 * 1024;
+const COMMAND_TIMEOUT_SECS: u64 = 300;
 
 const DEFAULT_PREFIXES: &[&str] = &[
     "npm test",
@@ -26,6 +29,7 @@ const DEFAULT_PREFIXES: &[&str] = &[
     "python -m pytest",
     "pytest",
     "go test",
+    "npx ",
 ];
 
 pub fn run_command(
@@ -46,7 +50,7 @@ pub fn run_command(
         ));
     }
 
-    let argv = match parse_command_argv(trimmed) {
+    let argv = match parse_argv_line(trimmed) {
         Ok(argv) => argv,
         Err(message) => return tool_error(message),
     };
@@ -155,7 +159,7 @@ pub fn git_checkout_branch(
     )
 }
 
-fn parse_command_argv(command: &str) -> Result<Vec<String>, String> {
+pub(crate) fn parse_argv_line(command: &str) -> Result<Vec<String>, String> {
     if contains_shell_metacharacters(command) {
         return Err("command contains unsupported shell characters".into());
     }
@@ -183,29 +187,77 @@ fn run_argv(sandbox: &WorkspaceSandbox, argv: &[String]) -> ToolResult {
         return tool_error("command cannot be empty");
     }
 
-    let program = &argv[0];
-    let args: Vec<&str> = argv[1..].iter().map(String::as_str).collect();
-    let root = sandbox.root();
+    let program = resolve_program(&argv[0]);
+    let args: Vec<String> = argv[1..].to_vec();
+    let root = sandbox.root().to_path_buf();
 
-    match Command::new(program).args(args).current_dir(root).output() {
-        Ok(out) => {
-            let stdout = truncate(String::from_utf8_lossy(&out.stdout).into_owned());
-            let stderr = truncate(String::from_utf8_lossy(&out.stderr).into_owned());
-            let code = out.status.code().unwrap_or(-1);
+    let mut child = match Command::new(&program)
+        .args(args.iter().map(String::as_str))
+        .current_dir(&root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => return tool_error(format!("failed to run command: {err}")),
+    };
 
-            ToolResult {
-                ok: out.status.success(),
-                output: format!(
-                    "exit_code: {code}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
-                ),
-                error: if out.status.success() {
-                    None
-                } else {
-                    Some(format!("command exited with code {code}"))
-                },
-            }
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut handle) = stdout {
+            let _ = handle.read_to_end(&mut buf);
         }
-        Err(err) => tool_error(format!("failed to run command: {err}")),
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut handle) = stderr {
+            let _ = handle.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let timeout = Duration::from_secs(COMMAND_TIMEOUT_SECS);
+    let started = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = stdout_thread.join().unwrap_or_default();
+                let stderr = stderr_thread.join().unwrap_or_default();
+                let stdout = truncate(String::from_utf8_lossy(&stdout).into_owned());
+                let stderr = truncate(String::from_utf8_lossy(&stderr).into_owned());
+                let code = status.code().unwrap_or(-1);
+
+                return ToolResult {
+                    ok: status.success(),
+                    output: format!(
+                        "exit_code: {code}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+                    ),
+                    error: if status.success() {
+                        None
+                    } else {
+                        Some(format!("command exited with code {code}"))
+                    },
+                };
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    return tool_error(format!(
+                        "command timed out after {COMMAND_TIMEOUT_SECS} seconds"
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(err) => return tool_error(format!("failed to wait on command: {err}")),
+        }
     }
 }
 
@@ -225,10 +277,22 @@ fn is_allowed(command: &str, extra_prefixes: &[String]) -> bool {
 }
 
 fn truncate(text: String) -> String {
-    if text.len() <= MAX_OUTPUT_BYTES {
-        return text;
+    truncate_at_byte_boundary(&text, MAX_OUTPUT_BYTES)
+}
+
+fn resolve_program(program: &str) -> String {
+    #[cfg(windows)]
+    {
+        let lower = program.to_lowercase();
+        match lower.as_str() {
+            "npm" | "pnpm" | "yarn" | "npx" => format!("{lower}.cmd"),
+            _ => program.to_string(),
+        }
     }
-    format!("{}… [truncated]", &text[..MAX_OUTPUT_BYTES])
+    #[cfg(not(windows))]
+    {
+        program.to_string()
+    }
 }
 
 fn tool_error(message: impl Into<String>) -> ToolResult {
@@ -295,5 +359,13 @@ mod tests {
         let sb = sandbox();
         let result = git_commit(&sb, "test \"injection\"", &[]);
         assert!(result.output.contains("exit_code") || result.error.is_some());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn resolves_batch_wrappers_on_windows() {
+        assert_eq!(resolve_program("npm"), "npm.cmd");
+        assert_eq!(resolve_program("NPM"), "npm.cmd");
+        assert_eq!(resolve_program("cargo"), "cargo");
     }
 }

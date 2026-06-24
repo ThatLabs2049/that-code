@@ -1,15 +1,16 @@
 //! Optional live LLM eval against the fixture repo. Not run in CI by default.
 //!
 //! ```bash
-//! set MUSE_EVAL_LIVE=1
-//! set MUSE_API_BASE=http://localhost:11434/v1
-//! set MUSE_MODEL=llama3.2
+//! set THATCODE_EVAL_LIVE=1
+//! set THATCODE_API_BASE=http://localhost:11434/v1
+//! set THATCODE_MODEL=llama3.2
 //! cargo test live_eval --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture
 //! ```
+//! Legacy env names `MUSE_EVAL_LIVE`, `MUSE_API_BASE`, `MUSE_MODEL`, `MUSE_API_KEY` still work.
 
 use std::path::Path;
 
-use crate::agents::companion::TaskSpec;
+use crate::agents::task::TaskSpec;
 use crate::agents::executor::{self, ExecutorStatus};
 use crate::bench::fixture_root;
 use crate::settings::AiSettings;
@@ -63,20 +64,26 @@ pub fn live_scenarios() -> &'static [LiveScenario] {
     ]
 }
 
+fn env_var(primary: &str, legacy: &str) -> Option<String> {
+    std::env::var(primary)
+        .ok()
+        .or_else(|| std::env::var(legacy).ok())
+}
+
 pub fn settings_from_env(workspace: &Path) -> Option<AiSettings> {
-    if std::env::var("MUSE_EVAL_LIVE").ok().as_deref() != Some("1") {
+    let live = env_var("THATCODE_EVAL_LIVE", "MUSE_EVAL_LIVE");
+    if live.as_deref() != Some("1") {
         return None;
     }
 
-    let base_url = std::env::var("MUSE_API_BASE")
-        .unwrap_or_else(|_| "http://localhost:11434/v1".into());
-    let model = std::env::var("MUSE_MODEL").unwrap_or_else(|_| "llama3.2".into());
+    let base_url = env_var("THATCODE_API_BASE", "MUSE_API_BASE")
+        .unwrap_or_else(|| "http://localhost:11434/v1".into());
+    let model = env_var("THATCODE_MODEL", "MUSE_MODEL").unwrap_or_else(|| "llama3.2".into());
 
     Some(AiSettings {
         base_url,
-        api_key: std::env::var("MUSE_API_KEY").unwrap_or_default(),
-        companion_model: model.clone(),
-        executor_model: model,
+        api_key: env_var("THATCODE_API_KEY", "MUSE_API_KEY").unwrap_or_default(),
+        agent_model: model.clone(),
         workspace_path: Some(workspace.to_string_lossy().into()),
         verify_enabled: false,
         context_pack_enabled: true,
@@ -88,11 +95,11 @@ pub fn settings_from_env(workspace: &Path) -> Option<AiSettings> {
 }
 
 #[tokio::test]
-#[ignore = "requires MUSE_EVAL_LIVE=1 and a reachable LLM API"]
+#[ignore = "requires THATCODE_EVAL_LIVE=1 and a reachable LLM API"]
 async fn live_eval_scenarios() {
     let workspace = fixture_root();
     let Some(settings) = settings_from_env(&workspace) else {
-        eprintln!("Skipping live eval (set MUSE_EVAL_LIVE=1 to run)");
+        eprintln!("Skipping live eval (set THATCODE_EVAL_LIVE=1 to run)");
         return;
     };
 
@@ -107,7 +114,13 @@ async fn live_eval_scenarios() {
             expected_output: scenario.expected_output.into(),
         };
 
-        match executor::execute(&settings, &task_spec, &[], None, None).await {
+        let mut run_config = crate::agents::profile::RunConfig::from_settings(
+            &settings,
+            crate::agents::profile::AgentTier::Auto,
+            scenario.objective,
+        );
+
+        match executor::execute(&settings, &mut run_config, &task_spec, &[], None, None).await {
             Ok(result) if result.status == ExecutorStatus::Success => {
                 let combined = format!("{} {}", result.summary, result.content).to_lowercase();
                 if !combined.contains(&scenario.success_hint.to_lowercase()) {

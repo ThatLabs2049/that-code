@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::agents::companion::TaskSpec;
+use crate::agents::task::TaskSpec;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -110,10 +110,50 @@ pub fn fail_running_tasks(conn: &Connection, conversation_id: &str) -> SqlResult
     Ok(())
 }
 
+pub fn fail_all_active_tasks(conn: &Connection, conversation_id: &str) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE task_queue SET status = 'error' WHERE conversation_id = ?1 AND status IN ('pending', 'running')",
+        params![conversation_id],
+    )?;
+    Ok(())
+}
+
 pub fn clear_completed(conn: &Connection, conversation_id: &str) -> SqlResult<()> {
     conn.execute(
         "DELETE FROM task_queue WHERE conversation_id = ?1 AND status IN ('done', 'error')",
         params![conversation_id],
     )?;
     Ok(())
+}
+
+pub fn list_all_tasks(conn: &Connection, conversation_id: &str) -> SqlResult<Vec<QueuedTask>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, conversation_id, task_spec, status, position, created_at
+         FROM task_queue
+         WHERE conversation_id = ?1
+         ORDER BY
+           CASE status
+             WHEN 'running' THEN 0
+             WHEN 'pending' THEN 1
+             ELSE 2
+           END,
+           position ASC,
+           created_at DESC
+         LIMIT 50",
+    )?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        let task_json: String = row.get(2)?;
+        let task_spec: TaskSpec = serde_json::from_str(&task_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(err))
+        })?;
+        Ok(QueuedTask {
+            id: row.get(0)?,
+            conversation_id: row.get(1)?,
+            task_spec,
+            status: row.get(3)?,
+            position: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+    rows.collect()
 }

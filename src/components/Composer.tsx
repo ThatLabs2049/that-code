@@ -1,72 +1,231 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
-import { formatMessage } from "../lib/i18n";
+import type { RetrievedChunk } from "../lib/rag";
+
+import type { AgentTier } from "../lib/settings";
+
+import { searchCodebase } from "../lib/rag";
+
+import { searchWorkspacePaths, searchWorkspaceSymbols } from "../lib/workspace";
+
+import type { MessageAttachment, WorkspacePathHit, WorkspaceSymbolHit } from "../lib/workspace";
 
 import { useLocale } from "../context/LocaleContext";
 
-import { personalityDisplayName } from "./PersonalityCards";
+import { invokeErrorMessage } from "../lib/invokeError";
+
+import { ContextPicker } from "./ContextPicker";
 
 import "./ChatScreen.css";
+
+import "./ContextPicker.css";
 
 
 
 interface ComposerProps {
 
-  personalityId: string;
+  onSend: (
+    displayContent: string,
+    attachments: MessageAttachment[],
+    exploreThenImplement?: boolean,
+    agentContent?: string,
+  ) => void;
 
-  onSend: (content: string) => void;
+  agentTier: AgentTier;
+
+  onAgentTierChange: (tier: AgentTier) => void;
 
   disabled?: boolean;
 
-  disabledReason?: "loading" | "sending" | "error";
+  disabledReason?: "loading" | "sending" | "error" | "plan";
+
+  ragEnabled?: boolean;
+
+  workspaceReady?: boolean;
+
+  codebasePreview?: RetrievedChunk[];
+
+  onCodebasePreview?: (chunks: RetrievedChunk[]) => void;
 
 }
 
 
 
-function placeholderKey(personalityId: string): "messagePlaceholderLuna" | "messagePlaceholderSage" | "messagePlaceholderSpark" {
+function parseAtQuery(text: string): string | null {
 
-  switch (personalityId) {
+  const match = text.match(/@([\w./\-]*)$/);
 
-    case "sage":
-
-      return "messagePlaceholderSage";
-
-    case "spark":
-
-      return "messagePlaceholderSpark";
-
-    default:
-
-      return "messagePlaceholderLuna";
-
-  }
+  return match ? match[1] : null;
 
 }
 
 
 
-export function Composer({ personalityId, onSend, disabled = false, disabledReason }: ComposerProps) {
+function stripAtQuery(text: string): string {
 
-  const { locale, translate } = useLocale();
+  return text.replace(/@[\w./\-]*$/, "").trimEnd();
+
+}
+
+
+
+export function Composer({
+
+  onSend,
+
+  agentTier,
+
+  onAgentTierChange,
+
+  disabled = false,
+
+  disabledReason,
+
+  ragEnabled = false,
+
+  workspaceReady = false,
+
+  codebasePreview = [],
+
+  onCodebasePreview,
+
+}: ComposerProps) {
+
+  const { translate } = useLocale();
 
   const [draft, setDraft] = useState("");
 
   const [focused, setFocused] = useState(false);
 
-  const companionName = personalityDisplayName(locale, personalityId);
+  const [searchingCodebase, setSearchingCodebase] = useState(false);
+
+  const [codebaseError, setCodebaseError] = useState<string | null>(null);
+
+  const [pathAttachments, setPathAttachments] = useState<MessageAttachment[]>([]);
+
+  const [pickerQuery, setPickerQuery] = useState<string | null>(null);
+
+  const [pickerHits, setPickerHits] = useState<WorkspacePathHit[]>([]);
+
+  const [symbolHits, setSymbolHits] = useState<WorkspaceSymbolHit[]>([]);
+
+  const [pickerLoading, setPickerLoading] = useState(false);
+
+  const composerRef = useRef<HTMLDivElement>(null);
+  const pickerQueryRef = useRef(pickerQuery);
+  pickerQueryRef.current = pickerQuery;
+
+  function attachmentKey(attachment: MessageAttachment): string {
+    return attachment.kind === "symbol"
+      ? `symbol:${attachment.path}:${attachment.line}:${attachment.symbol}`
+      : `${attachment.kind}:${attachment.path}`;
+  }
 
 
 
-  function submit() {
+  const pickerOpen = workspaceReady && pickerQuery !== null;
+
+
+
+  useEffect(() => {
+
+    if (!pickerOpen) {
+
+      setPickerHits([]);
+
+      setSymbolHits([]);
+
+      return;
+
+    }
+
+
+
+    const query = pickerQuery;
+
+    const timer = window.setTimeout(() => {
+
+      setPickerLoading(true);
+
+      const pathPromise = searchWorkspacePaths(query).catch(() => [] as WorkspacePathHit[]);
+
+      const symbolPromise =
+
+        query.trim().length >= 2
+
+          ? searchWorkspaceSymbols(query).catch(() => [] as WorkspaceSymbolHit[])
+
+          : Promise.resolve([] as WorkspaceSymbolHit[]);
+
+      void Promise.all([pathPromise, symbolPromise])
+        .then(([paths, symbols]) => {
+          if (query !== pickerQueryRef.current) return;
+          setPickerHits(paths);
+          setSymbolHits(symbols);
+        })
+
+        .finally(() => setPickerLoading(false));
+
+    }, 180);
+
+
+
+    return () => window.clearTimeout(timer);
+
+  }, [pickerOpen, pickerQuery]);
+
+
+
+  function submit(exploreThenImplement = false) {
 
     const trimmed = draft.trim();
 
-    if (!trimmed || disabled) return;
+    if ((!trimmed && pathAttachments.length === 0 && codebasePreview.length === 0) || disabled) {
 
-    onSend(trimmed);
+      return;
+
+    }
+
+
+
+    let content = trimmed;
+
+    if (codebasePreview.length > 0) {
+
+      const block = codebasePreview
+
+        .map(
+
+          (chunk) =>
+
+            `[${chunk.sourcePath}] (score ${chunk.score.toFixed(2)})\n${chunk.snippet}`,
+
+        )
+
+        .join("\n\n");
+
+      content = `${trimmed}\n\n--- @codebase context ---\n${block}\n---`;
+
+    }
+
+
+
+    onSend(
+      trimmed,
+      pathAttachments,
+      exploreThenImplement,
+      content !== trimmed ? content : undefined,
+    );
 
     setDraft("");
+
+    setPathAttachments([]);
+
+    setPickerQuery(null);
+
+    onCodebasePreview?.([]);
+
+    setCodebaseError(null);
 
   }
 
@@ -84,11 +243,144 @@ export function Composer({ personalityId, onSend, disabled = false, disabledReas
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
 
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Escape" && pickerOpen) {
+
+      event.preventDefault();
+
+      setPickerQuery(null);
+
+      return;
+
+    }
+
+    if (event.key === "Enter" && !event.shiftKey && !pickerOpen) {
 
       event.preventDefault();
 
       submit();
+
+    }
+
+  }
+
+
+
+  function handleDraftChange(value: string) {
+
+    setDraft(value);
+
+    const atQuery = parseAtQuery(value);
+
+    setPickerQuery(atQuery);
+
+  }
+
+
+
+  function handleSelectSymbol(hit: WorkspaceSymbolHit) {
+
+    setPathAttachments((current) => {
+
+      const key = `${hit.path}:${hit.line}:${hit.name}`;
+
+      if (current.some((item) => item.kind === "symbol" && `${item.path}:${item.line}:${item.symbol}` === key)) {
+
+        return current;
+
+      }
+
+      return [
+
+        ...current,
+
+        { path: hit.path, kind: "symbol", line: hit.line, symbol: hit.name },
+
+      ];
+
+    });
+
+    setDraft((current) => stripAtQuery(current));
+
+    setPickerQuery(null);
+
+  }
+
+
+
+  function handleSelectPath(hit: WorkspacePathHit) {
+
+    setPathAttachments((current) => {
+
+      if (current.some((item) => item.path === hit.path && item.kind === hit.kind)) {
+
+        return current;
+
+      }
+
+      return [...current, { path: hit.path, kind: hit.kind }];
+
+    });
+
+    setDraft((current) => stripAtQuery(current));
+
+    setPickerQuery(null);
+
+  }
+
+
+
+  function removeAttachment(attachment: MessageAttachment) {
+
+    const key = attachmentKey(attachment);
+    setPathAttachments((current) =>
+      current.filter((item) => attachmentKey(item) !== key),
+    );
+
+  }
+
+
+
+  function openContextPicker() {
+
+    if (!workspaceReady) return;
+
+    setDraft((current) => (current.endsWith("@") ? current : `${current}@`));
+
+    setPickerQuery("");
+
+  }
+
+
+
+  async function handleCodebaseSearch() {
+
+    const query = draft.trim() || translate("codebaseDefaultQuery");
+
+    setSearchingCodebase(true);
+
+    setCodebaseError(null);
+
+    try {
+
+      const chunks = await searchCodebase(query);
+
+      onCodebasePreview?.(chunks);
+
+      if (chunks.length === 0) {
+
+        setCodebaseError(translate("codebaseNoResults"));
+
+      }
+
+    } catch (err) {
+
+      setCodebaseError(invokeErrorMessage(err, translate("codebaseSearchError")));
+
+      onCodebasePreview?.([]);
+
+    } finally {
+
+      setSearchingCodebase(false);
 
     }
 
@@ -102,9 +394,13 @@ export function Composer({ personalityId, onSend, disabled = false, disabledReas
 
       ? translate("composerDisabledSending")
 
-      : disabledReason === "loading"
+        : disabledReason === "loading"
 
         ? translate("composerDisabledLoading")
+
+        : disabledReason === "plan"
+
+          ? translate("composerDisabledPlan")
 
         : disabledReason === "error"
 
@@ -114,71 +410,277 @@ export function Composer({ personalityId, onSend, disabled = false, disabledReas
 
 
 
+  const hasAttachments = pathAttachments.length > 0 || codebasePreview.length > 0;
+
+
+
   return (
 
-    <>
+    <div className="composer-wrap" ref={composerRef}>
 
-      <form
+      {hasAttachments && (
 
-        className="composer"
+        <div className="composer__attachments" role="status">
 
-        onSubmit={handleSubmit}
+          {pathAttachments.map((attachment) => (
 
-        aria-label={formatMessage(locale, "messageCompanionDynamic", { name: companionName })}
+            <span key={attachmentKey(attachment)} className="composer__chip">
 
-      >
+              <span className="composer__chip-label">
 
-        <label htmlFor="chat-input" className="sr-only">
+                {attachment.kind === "symbol"
 
-          {formatMessage(locale, "messageCompanionDynamic", { name: companionName })}
+                  ? `@symbol:${attachment.symbol} (${attachment.path}:${attachment.line})`
 
-        </label>
+                  : `@${attachment.kind === "folder" ? "folder" : "file"}:${attachment.path}`}
 
-        <textarea
+              </span>
 
-          id="chat-input"
+              <button
 
-          className="composer__input"
+                type="button"
 
-          rows={1}
+                className="composer__chip-remove"
 
-          value={draft}
+                onClick={() => removeAttachment(attachment)}
 
-          placeholder={translate(placeholderKey(personalityId))}
+                aria-label={translate("contextChipRemove")}
 
-          disabled={disabled}
+              >
 
-          dir="auto"
+                ×
 
-          aria-describedby={disabledHint ? "composer-disabled-hint" : focused ? "composer-hint" : undefined}
+              </button>
 
-          onChange={(event) => setDraft(event.target.value)}
+            </span>
 
-          onKeyDown={handleKeyDown}
+          ))}
 
-          onFocus={() => setFocused(true)}
+          {codebasePreview.length > 0 && (
 
-          onBlur={() => setFocused(false)}
+            <span className="composer__chip composer__chip--codebase">
 
-        />
+              <span className="composer__chip-label">{translate("codebaseAttached")}</span>
 
-        <button
+              <button
 
-          type="submit"
+                type="button"
 
-          className="composer__send"
+                className="composer__chip-remove"
 
-          disabled={disabled || !draft.trim()}
+                onClick={() => onCodebasePreview?.([])}
 
-          aria-label={translate("sendMessage")}
+                aria-label={translate("codebaseClear")}
 
-        >
+              >
 
-          {translate("send")}
+                ×
 
-        </button>
+              </button>
 
-      </form>
+            </span>
+
+          )}
+
+        </div>
+
+      )}
+
+      <div className="composer__field">
+
+        {pickerOpen && (
+
+          <ContextPicker
+
+            pathHits={pickerHits}
+
+            symbolHits={symbolHits}
+
+            loading={pickerLoading}
+
+            query={pickerQuery ?? ""}
+
+            onSelectPath={handleSelectPath}
+
+            onSelectSymbol={handleSelectSymbol}
+
+          />
+
+        )}
+
+        <form className="composer" onSubmit={handleSubmit} aria-label={translate("messageInputLabel")}>
+
+          <label htmlFor="agent-tier" className="sr-only">
+
+            {translate("agentTierLabel")}
+
+          </label>
+
+          <select
+
+            id="agent-tier"
+
+            className="composer__tier"
+
+            value={agentTier}
+
+            disabled={disabled}
+
+            onChange={(event) => onAgentTierChange(event.target.value as AgentTier)}
+
+            title={translate("agentTierHint")}
+
+            aria-label={translate("agentTierLabel")}
+
+          >
+
+            <option value="auto">{translate("agentTierAuto")}</option>
+
+            <option value="quick">{translate("agentTierQuick")}</option>
+
+            <option value="standard">{translate("agentTierStandard")}</option>
+
+            <option value="deep">{translate("agentTierDeep")}</option>
+
+            <option value="explain">{translate("agentTierExplain")}</option>
+
+          </select>
+
+          <label htmlFor="chat-input" className="sr-only">
+
+            {translate("messageInputLabel")}
+
+          </label>
+
+          {workspaceReady && (
+
+            <button
+
+              type="button"
+
+              className="composer__context"
+
+              disabled={disabled}
+
+              onClick={openContextPicker}
+
+              title={translate("contextActionHint")}
+
+              aria-label={translate("contextAction")}
+
+            >
+
+              {translate("contextAction")}
+
+            </button>
+
+          )}
+
+          {workspaceReady && (
+
+            <button
+
+              type="button"
+
+              className="composer__explore"
+
+              disabled={disabled || !draft.trim()}
+
+              onClick={() => submit(true)}
+
+              title={translate("exploreSubagentHint")}
+
+              aria-label={translate("exploreSubagent")}
+
+            >
+
+              {translate("exploreSubagent")}
+
+            </button>
+
+          )}
+
+          {ragEnabled && (
+
+            <button
+
+              type="button"
+
+              className="composer__codebase"
+
+              disabled={disabled || searchingCodebase}
+
+              onClick={() => void handleCodebaseSearch()}
+
+              title={translate("codebaseActionHint")}
+
+              aria-label={translate("codebaseAction")}
+
+            >
+
+              {searchingCodebase ? "…" : translate("codebaseAction")}
+
+            </button>
+
+          )}
+
+          <textarea
+
+            id="chat-input"
+
+            className="composer__input"
+
+            rows={1}
+
+            value={draft}
+
+            placeholder={translate("messagePlaceholder")}
+
+            disabled={disabled}
+
+            dir="auto"
+
+            aria-describedby={disabledHint ? "composer-disabled-hint" : focused ? "composer-hint" : undefined}
+
+            onChange={(event) => handleDraftChange(event.target.value)}
+
+            onKeyDown={handleKeyDown}
+
+            onFocus={() => setFocused(true)}
+
+            onBlur={() => setFocused(false)}
+
+          />
+
+          <button
+
+            type="submit"
+
+            className="composer__send"
+
+            disabled={disabled || (!draft.trim() && pathAttachments.length === 0 && codebasePreview.length === 0)}
+
+            aria-label={translate("sendMessage")}
+
+          >
+
+            {translate("send")}
+
+          </button>
+
+        </form>
+
+      </div>
+
+      {codebaseError && (
+
+        <p className="composer__hint composer__hint--error" role="alert">
+
+          {codebaseError}
+
+        </p>
+
+      )}
 
       {disabledHint ? (
 
@@ -198,15 +700,11 @@ export function Composer({ personalityId, onSend, disabled = false, disabledReas
 
       ) : (
 
-        <p className="composer__hint">
-
-          {formatMessage(locale, "composerHintDynamic", { name: companionName })}
-
-        </p>
+        <p className="composer__hint">{translate("composerHint")}</p>
 
       )}
 
-    </>
+    </div>
 
   );
 

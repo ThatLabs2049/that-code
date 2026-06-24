@@ -1,4 +1,4 @@
-use crate::agents::companion::TaskSpec;
+use crate::agents::task::TaskSpec;
 use crate::db::{self, DbState, QueuedTask};
 use tauri::State;
 
@@ -12,7 +12,7 @@ pub fn list_queued_tasks(
     conversation_id: String,
 ) -> Result<Vec<QueuedTask>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::list_pending_tasks(&conn, &conversation_id).map_err(db_error)
+    db::list_all_tasks(&conn, &conversation_id).map_err(db_error)
 }
 
 #[tauri::command]

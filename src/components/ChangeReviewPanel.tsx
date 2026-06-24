@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FileChange } from "../lib/changes";
-import { revertExecutorRun } from "../lib/changes";
+import { revertExecutorRun, openInEditor } from "../lib/changes";
 import { useLocale } from "../context/LocaleContext";
 import { formatMessage } from "../lib/i18n";
 import { invokeErrorMessage } from "../lib/invokeError";
+import { LazyDiffPane } from "./LazyDiffPane";
+import { DiffHunkReview } from "./DiffHunkReview";
 import "./ChangeReviewPanel.css";
 
 interface ChangeReviewPanelProps {
@@ -18,8 +20,15 @@ export function ChangeReviewPanel({ runId, changes, onReverted }: ChangeReviewPa
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diffRefreshKey, setDiffRefreshKey] = useState(0);
 
   const selected = changes.find((change) => change.path === selectedPath) ?? changes[0];
+
+  useEffect(() => {
+    if (!changes.some((change) => change.path === selectedPath)) {
+      setSelectedPath(changes[0]?.path ?? "");
+    }
+  }, [changes, selectedPath]);
 
   async function handleRevertAll() {
     setBusy(true);
@@ -79,14 +88,27 @@ export function ChangeReviewPanel({ runId, changes, onReverted }: ChangeReviewPa
                 </span>
                 <span className="change-review__file-type">{change.changeType}</span>
               </button>
+              <button
+                type="button"
+                className="change-review__open-editor"
+                title={translate("openInEditor")}
+                onClick={() => void openInEditor(change.path)}
+              >
+                {translate("openInEditor")}
+              </button>
             </li>
           ))}
         </ul>
 
         {selected && (
-          <pre className="change-review__diff" dir="ltr">
-            {selected.diff || translate("changesNoDiff")}
-          </pre>
+          <div className="change-review__diff-column">
+            <LazyDiffPane runId={runId} path={selected.path} refreshKey={diffRefreshKey} />
+            <DiffHunkReview
+              runId={runId}
+              path={selected.path}
+              onUpdated={() => setDiffRefreshKey((key) => key + 1)}
+            />
+          </div>
         )}
       </div>
 

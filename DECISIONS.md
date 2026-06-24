@@ -6,7 +6,7 @@ This document records significant technical and product decisions. Format: **ADR
 
 ## ADR-001 — Dual-agent architecture (Companion + Executor)
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR-012](#adr-012--thatcode-pivot-single-agent--rebrand)  
 **Date:** 2025 (project inception)
 
 ### Context
@@ -283,6 +283,41 @@ Delegated tasks felt slow: three sequential LLM calls with no feedback until com
 
 - `send_message` may produce two companion messages (holding + final) on delegate path
 - UI listens for events during invoke; direct chat unchanged
+
+---
+
+## ADR-012 — ThatCode pivot (single agent + rebrand)
+
+**Status:** Accepted  
+**Date:** 2026-06-20
+
+### Context
+
+Muse optimized for companion-first chat and dual-agent orchestration. Daily use and product direction shifted toward a **local coding agent** (Claude Code class) with a **simple, serious UI** — aligned with the ThatGPT product family tone, but as a separate repo/product.
+
+Dual-agent added latency, cost, and UX complexity without improving coding tasks. v2.2 companion polish was cancelled.
+
+### Decision
+
+1. Rebrand product to **ThatCode** (display name); GitHub repo **`that-code`**.
+2. Replace dual-agent UX with a **single coding agent** and tool loop (reuse executor infrastructure).
+3. Ship **ThatCode v2.7.1** as first ThatCode release (Windows NSIS + MSI + portable); Muse 2.1.0 remains last Muse semver.
+4. **Windows-only** installers for v1; macOS/Linux in Phase 8.
+5. Retire companion personas (Luna/Sage/Spark) from v3.0 scope; English-first UI.
+
+Full checklist: [`docs/temp/thatcode-todo.md`](./docs/temp/thatcode-todo.md).
+
+### Alternatives considered
+
+- **Continue Muse companion track (v2.2)** — rejected; misaligned with coding-agent use case.
+- **Fork Void / VS Code extension** — rejected for v1; too much IDE surface area.
+- **Merge into ThatGPT repo** — rejected; separate product, family tone only.
+
+### Consequences
+
+- ADR-001, ADR-006, ADR-009, ADR-010 (intent classification) are effectively retired for new work.
+- ADR-002 (Tauri), ADR-003 (SQLite), workspace tools ADRs remain relevant.
+- Clean install required for users moving from `com.muse.app` to `com.thatcode.app`.
 
 ---
 

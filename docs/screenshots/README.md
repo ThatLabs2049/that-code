@@ -1,12 +1,11 @@
 # Screenshots
 
-Marketing images for [README.md](../README.md) and [index.html](../index.html).
+Marketing images for [README.md](../../README.md) and [index.html](../index.html). Updated for **ThatCode v2.7.1**.
 
 | File | Use |
 |------|-----|
-| `chat.png` | Main companion chat (Sage) |
-| `workflow.gif` | Dual-agent workflow demo |
-| `companion.png` | Settings → Companion personalities |
+| `chat.png` | Main ThatCode chat with project context |
+| `workflow.gif` | Agent workflow demo (tools + diffs) |
 | `connections.png` | Settings → Connection / models |
 | `workspace.png` | Settings → Workspace sandbox |
 

@@ -1,1017 +1,702 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
 import type { Message } from "../components/MessageList";
-
 import type { FileChange } from "../lib/changes";
-
 import { getExecutorRunChanges } from "../lib/changes";
-
 import {
-
   cancelRun,
-
   clearHistory,
-
   getActiveConversation,
-
   getMessages,
-
+  getPendingPlan,
   sendMessage as sendMessageCommand,
-
-  type CompanionStreamPayload,
-
+  respondToAgentPlan,
+  type AssistantStreamPayload,
   type ExecutorActivity,
-
   type ExecutorProgressEvent,
-
   type SendMessageResult,
-
   type StoredMessage,
-
 } from "../lib/chat";
-
 import { isConnectionConfigured } from "../lib/connection";
-
 import { friendlyError } from "../lib/errors";
-
-import { getSettings } from "../lib/settings";
-
-import { t, type MessageKey, type UiLocale } from "../lib/i18n";
-
-
-
-function companionLabel(locale: UiLocale, personalityId: string): string {
-
-  switch (personalityId) {
-
-    case "sage":
-
-      return t(locale, "companionNameSage");
-
-    case "spark":
-
-      return t(locale, "companionNameSpark");
-
-    default:
-
-      return t(locale, "companionNameLuna");
-
-  }
-
-}
-
-
-
-function companionMessagesAfterUser(
-
-  stored: StoredMessage[],
-
-  userContent: string,
-
-): StoredMessage[] {
-
-  const needle = userContent.trim();
-
-  let userIndex = -1;
-
-  for (let i = stored.length - 1; i >= 0; i -= 1) {
-
-    if (stored[i].role === "user" && stored[i].content.trim() === needle) {
-
-      userIndex = i;
-
-      break;
-
-    }
-
-  }
-
-  if (userIndex === -1) return [];
-
-  return stored.slice(userIndex + 1).filter((message) => message.role === "companion");
-
-}
-
-
-
-function storedIncludesStreamedCompanion(
-
-  stored: StoredMessage[],
-
-  userContent: string,
-
-  streamed: string,
-
-): boolean {
-
-  if (!streamed) return false;
-
-  return companionMessagesAfterUser(stored, userContent).some(
-
-    (message) => message.content.trim() === streamed,
-
-  );
-
-}
-
-
+import { getSettings, updateSettings, type AgentTier } from "../lib/settings";
+import { t, type UiLocale } from "../lib/i18n";
 
 function sleep(ms: number): Promise<void> {
-
   return new Promise((resolve) => setTimeout(resolve, ms));
-
 }
 
-
-
-function toUiMessage(
-
-  message: StoredMessage,
-
-  locale: UiLocale,
-
-  personalityId: string,
-
-): Message {
-
+function toUiMessage(message: StoredMessage): Message {
   return {
-
     id: message.id,
-
-    role: message.role,
-
+    role: message.role === "companion" ? "assistant" : "user",
     content: message.content,
-
-    label:
-
-      message.role === "companion" ? companionLabel(locale, personalityId) : undefined,
-
   };
-
 }
 
+function assistantRepliesAfterLatestUser(stored: StoredMessage[]): StoredMessage[] {
+  let userIndex = -1;
+  for (let i = stored.length - 1; i >= 0; i -= 1) {
+    if (stored[i].role === "user") {
+      userIndex = i;
+      break;
+    }
+  }
+  if (userIndex === -1) return [];
+  return stored
+    .slice(userIndex + 1)
+    .filter((message) => message.role === "companion" && message.content.trim().length > 0);
+}
 
+function storedToUiMessages(stored: StoredMessage[]): Message[] {
+  return stored
+    .filter((message) => message.role !== "companion" || message.content.trim().length > 0)
+    .map(toUiMessage);
+}
 
-function phaseMessageKey(phase: DelegatePhase): MessageKey {
+function applyAssistantReply(
+  current: Message[],
+  content: string,
+  streamingAssistantId: string,
+): Message[] {
+  const trimmed = content.trim();
+  if (!trimmed) return current;
 
-  switch (phase) {
-
-    case "understanding":
-
-      return "phaseUnderstanding";
-
-    case "executing":
-
-      return "phaseExecuting";
-
-    case "formatting":
-
-      return "phaseFormatting";
-
-    default:
-
-      return "companionThinking";
-
+  const streamingIndex = current.findIndex((message) => message.id === streamingAssistantId);
+  if (streamingIndex >= 0) {
+    return current.map((message) =>
+      message.id === streamingAssistantId
+        ? { ...message, content: trimmed, streaming: false }
+        : message,
+    );
   }
 
+  const withoutTyping = current.filter((message) => message.id !== "typing");
+  return [
+    ...withoutTyping,
+    {
+      id: `assistant-${Date.now()}`,
+      role: "assistant",
+      content: trimmed,
+    },
+  ];
 }
 
+const AGENT_TIERS: readonly AgentTier[] = ["auto", "quick", "standard", "deep", "explain"];
 
-
-export type DelegatePhase = "understanding" | "executing" | "formatting" | null;
-
-
+export type AgentPhase = "running" | null;
 
 export function useChat(locale: UiLocale = "en") {
-
-  const [personalityId, setPersonalityId] = useState("luna");
-
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
-
   const [connectionConfigured, setConnectionConfigured] = useState(false);
-
   const [conversationId, setConversationId] = useState<string | null>(null);
-
   const [messages, setMessages] = useState<Message[]>([]);
-
-  const [executorActivity, setExecutorActivity] = useState<ExecutorActivity | null>(null);
-
-  const [delegatePhase, setDelegatePhase] = useState<DelegatePhase>(null);
-
-  const [interimHolding, setInterimHolding] = useState<string | null>(null);
-
-  const [streamingContent, setStreamingContent] = useState<string | null>(null);
-
+  const [agentActivity, setAgentActivity] = useState<ExecutorActivity | null>(null);
+  const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
   const [fileChanges, setFileChanges] = useState<FileChange[]>([]);
-
   const [executorRunId, setExecutorRunId] = useState<string | null>(null);
-
   const [loading, setLoading] = useState(true);
-
   const [sending, setSending] = useState(false);
-
-  const [executorVisibility, setExecutorVisibility] = useState(true);
-
+  const [agentVisibility, setAgentVisibility] = useState(true);
+  const [ragEnabled, setRagEnabled] = useState(false);
+  const [retrievedContext, setRetrievedContext] = useState<import("../lib/rag").RetrievedChunk[]>([]);
+  const [ragRefreshKey, setRagRefreshKey] = useState(0);
+  const [agentTier, setAgentTier] = useState<AgentTier>("auto");
+  const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const [sendError, setSendError] = useState<string | null>(null);
-
-  const streamBufferRef = useRef("");
-
   const loadGenerationRef = useRef(0);
-
+  const sendGenerationRef = useRef(0);
   const sendingRef = useRef(false);
-
   const cancelRequestedRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  const delegationSucceededRef = useRef(false);
-
-
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
-
     const generation = ++loadGenerationRef.current;
-
     setLoading(true);
-
     setLoadError(null);
 
     if (!sendingRef.current) {
-
       setSendError(null);
-
-      setExecutorActivity(null);
-
-      setDelegatePhase(null);
-
-      setInterimHolding(null);
-
-      setStreamingContent(null);
-
+      setAgentActivity(null);
+      setAgentPhase(null);
       setFileChanges([]);
-
       setExecutorRunId(null);
-
+      setRetrievedContext([]);
     }
 
-
-
     try {
-
       const conversation = await getActiveConversation();
-
-      const stored = await getMessages(conversation.id);
-
-      const settings = await getSettings();
-
-      if (generation !== loadGenerationRef.current) return;
-
-      const pid = settings.personalityId ?? "luna";
-
-      setPersonalityId(pid);
+      const [stored, settings, pending] = await Promise.all([
+        getMessages(conversation.id),
+        getSettings(),
+        getPendingPlan(conversation.id),
+      ]);
+      if (generation !== loadGenerationRef.current || !mountedRef.current) return;
 
       setWorkspacePath(settings.workspacePath ?? null);
-
-      setExecutorVisibility(settings.executorVisibility ?? false);
-
-      setConnectionConfigured(
-
-        isConnectionConfigured(settings.baseUrl, settings.apiKeyConfigured),
-
+      setRagEnabled(settings.ragEnabled ?? false);
+      setAgentVisibility(settings.executorVisibility ?? true);
+      setAgentTier(
+        AGENT_TIERS.includes(settings.defaultAgentTier as AgentTier)
+          ? settings.defaultAgentTier
+          : "auto",
       );
-
+      setConnectionConfigured(
+        isConnectionConfigured(settings.baseUrl, settings.apiKeyConfigured),
+      );
       setConversationId(conversation.id);
 
       if (!sendingRef.current) {
-
-        setMessages(stored.map((m) => toUiMessage(m, locale, pid)));
-
+        setMessages(storedToUiMessages(stored));
+        setPendingPlan(pending?.briefing ?? null);
       }
-
     } catch (err) {
-
-      if (generation !== loadGenerationRef.current) return;
-
+      if (generation !== loadGenerationRef.current || !mountedRef.current) return;
       setLoadError(
-
         friendlyError(
-
           err instanceof Error ? err.message : "",
-
           t(locale, "loadConversationError"),
-
         ),
-
       );
-
     } finally {
-
-      if (generation === loadGenerationRef.current) {
-
+      if (generation === loadGenerationRef.current && mountedRef.current) {
         setLoading(false);
-
       }
-
     }
-
   }, [locale]);
 
-
-
   useEffect(() => {
-
     void load();
-
   }, [load]);
 
-
-
   const cancel = useCallback(async () => {
-
-    if (!conversationId || !sending) return;
-
+    if (!conversationId || !sendingRef.current) return;
     cancelRequestedRef.current = true;
-
-    setSending(false);
-
-    sendingRef.current = false;
-
-    setDelegatePhase(null);
-
-    setInterimHolding(null);
-
-    setStreamingContent(null);
-
-    setExecutorActivity(null);
-
-
+    setAgentPhase(null);
+    setAgentActivity(null);
 
     try {
-
       await cancelRun(conversationId);
-
     } catch {
-
-      // Best-effort cancel; backend may already be finished.
-
+      // Best-effort cancel
     }
+  }, [conversationId]);
 
-  }, [conversationId, sending]);
-
-
+  const changeAgentTier = useCallback(async (tier: AgentTier) => {
+    setAgentTier(tier);
+    try {
+      await updateSettings({ defaultAgentTier: tier });
+    } catch {
+      // Composer tier still applies to the next send
+    }
+  }, []);
 
   const send = useCallback(
+    async (
+      content: string,
+      attachments: import("../lib/workspace").MessageAttachment[] = [],
+      exploreThenImplement = false,
+      agentContent?: string,
+    ) => {
+      if (!conversationId || sending || pendingPlan) return;
 
-    async (content: string) => {
-
-      if (!conversationId || sending) return;
-
-
+      const messageForUi = content;
+      const messageForApi = agentContent ?? content;
 
       if (!connectionConfigured) {
-
         setSendError(t(locale, "connectionError"));
-
         return;
-
       }
 
-
-
+      const generation = ++sendGenerationRef.current;
       setSending(true);
-
       sendingRef.current = true;
-
-      // Invalidate any in-flight conversation reload that could overwrite live send state.
-
       loadGenerationRef.current += 1;
-
       cancelRequestedRef.current = false;
-
-      delegationSucceededRef.current = false;
-
       setSendError(null);
-
-      setExecutorActivity(null);
-
-      setDelegatePhase(null);
-
-      setInterimHolding(null);
-
-      setStreamingContent(null);
-
+      setAgentActivity(null);
+      setAgentPhase("running");
       setFileChanges([]);
-
       setExecutorRunId(null);
+      setRetrievedContext([]);
 
-      streamBufferRef.current = "";
-
-
-
-      const pendingUserId = `pending-user-${Date.now()}`;
-
-      setMessages((current) => [
-
-        ...current,
-
-        {
-
-          id: pendingUserId,
-
-          role: "user",
-
-          content,
-
-          label: undefined,
-
-        },
-
-      ]);
-
-
-
-      let unlistenProgress: (() => void) | undefined;
-
-      let unlistenStream: (() => void) | undefined;
-
+      let pendingUserId = `pending-user-${Date.now()}`;
+      const streamingAssistantId = `streaming-assistant-${Date.now()}`;
+      let streamActive = false;
       let invokeFailed = false;
-
       let invokeErrorMessage = "";
-
-
+      let invokeSucceeded = false;
+      let result: SendMessageResult | null = null;
 
       const reloadFromDb = async (
-
-        sentContent: string,
-
-        delaysMs: number[] = [0, 250, 750, 1500, 2500],
-
+        delaysMs: number[] = [0, 250, 750, 1500, 2500, 4000],
+        force = false,
       ): Promise<boolean> => {
-
-        const streamedFinal = streamBufferRef.current.trim();
-
+        if (!force && streamActive) return false;
         for (const delay of delaysMs) {
-
-          if (delay > 0) {
-
-            await sleep(delay);
-
-          }
-
+          if (generation !== sendGenerationRef.current) return false;
+          if (delay > 0) await sleep(delay);
+          if ((!force && streamActive) || generation !== sendGenerationRef.current) return false;
           try {
-
             const stored = await getMessages(conversationId);
-
-            const companionReplies = companionMessagesAfterUser(stored, sentContent);
-
-            const lastCompanion = companionReplies[companionReplies.length - 1];
-
-            if (!lastCompanion) {
-
-              continue;
-
-            }
-
-
-
-            if (delegationSucceededRef.current && streamedFinal.length > 0) {
-
-              const hasStreamedFinal = storedIncludesStreamedCompanion(
-
-                stored,
-
-                sentContent,
-
-                streamedFinal,
-
-              );
-
-              // Delegated runs insert a holding message before the final; wait for both.
-
-              if (!hasStreamedFinal && companionReplies.length < 2) {
-
-                continue;
-
-              }
-
-            }
-
-
-
+            const replies = assistantRepliesAfterLatestUser(stored);
+            if (!replies.length) continue;
             loadGenerationRef.current += 1;
-
-            setMessages(stored.map((m) => toUiMessage(m, locale, personalityId)));
-
+            setMessages(storedToUiMessages(stored));
             return true;
-
           } catch {
-
-            // Retry while the backend finishes writing.
-
+            // Retry while backend finishes writing
           }
-
         }
-
         return false;
-
       };
 
+      const reconcileSendOutcome = async () => {
+        const syncDelays = invokeFailed
+          ? [0, 500, 1500, 3000, 5000, 8000, 12000, 15000]
+          : [0, 400, 1200, 2500, 4000];
 
-
-      const commitStreamFallback = async (sentContent: string): Promise<boolean> => {
-
-        const streamed = streamBufferRef.current.trim();
-
-        if (!streamed) return false;
-
-
-
-        try {
-
-          const stored = await getMessages(conversationId);
-
-          if (storedIncludesStreamedCompanion(stored, sentContent, streamed)) {
-
-            loadGenerationRef.current += 1;
-
-            setMessages(stored.map((m) => toUiMessage(m, locale, personalityId)));
-
-            return true;
-
-          }
-
-
-
-          loadGenerationRef.current += 1;
-
-          setMessages([
-
-            ...stored.map((m) => toUiMessage(m, locale, personalityId)),
-
-            {
-
-              id: `companion-stream-${Date.now()}`,
-
-              role: "companion",
-
-              content: streamed,
-
-              label: companionLabel(locale, personalityId),
-
-            },
-
-          ]);
-
-          return true;
-
-        } catch {
-
-          setMessages((current) => {
-
-            if (
-
-              current.some(
-
-                (message) =>
-
-                  message.role === "companion" && message.content.trim() === streamed,
-
-              )
-
-            ) {
-
-              return current.filter((message) => message.id !== pendingUserId);
-
-            }
-
-            return [
-
-              ...current.filter((message) => message.id !== pendingUserId),
-
-              {
-
-                id: `companion-stream-${Date.now()}`,
-
-                role: "companion",
-
-                content: streamed,
-
-                label: companionLabel(locale, personalityId),
-
-              },
-
-            ];
-
-          });
-
-          return true;
-
+        // Always sync from DB at end — streamed ack is ephemeral; final message is persisted separately.
+        const synced = await reloadFromDb(syncDelays, true);
+        if (synced) {
+          setSendError(null);
+          return;
         }
 
+        const fallbackMessage = result?.assistantMessage?.trim();
+        if (fallbackMessage) {
+          setMessages((current) =>
+            applyAssistantReply(current, fallbackMessage, streamingAssistantId),
+          );
+          setSendError(null);
+          return;
+        }
+
+        if (streamActive) {
+          setSendError(null);
+          return;
+        }
+
+        if (invokeSucceeded) {
+          setSendError(t(locale, "sendMessageError"));
+          return;
+        }
+
+        let stored: StoredMessage[] = [];
+        try {
+          stored = await getMessages(conversationId);
+        } catch {
+          setMessages((current) => current.filter((message) => message.id !== pendingUserId));
+          setSendError(invokeErrorMessage);
+          return;
+        }
+
+        const userInDb = stored.some(
+          (message) =>
+            message.role === "user" && message.content.trim() === messageForApi.trim(),
+        );
+        const hasReply = assistantRepliesAfterLatestUser(stored).length > 0;
+
+        if (hasReply) {
+          loadGenerationRef.current += 1;
+          setMessages(storedToUiMessages(stored));
+          setSendError(null);
+          return;
+        }
+
+        if (userInDb) {
+          setSendError(null);
+          void reloadFromDb([2000, 5000, 10000, 15000], true);
+          return;
+        }
+
+        setMessages((current) => current.filter((message) => message.id !== pendingUserId));
+        setSendError(invokeErrorMessage);
       };
 
+      setMessages((current) => [
+        ...current,
+        { id: pendingUserId, role: "user", content: messageForUi },
+      ]);
 
+      let unlistenProgress: (() => void) | undefined;
+      let unlistenStream: (() => void) | undefined;
+      let unlistenMessages: (() => void) | undefined;
 
       try {
-
         const { listen } = await import("@tauri-apps/api/event");
 
-
-
         unlistenProgress = await listen<ExecutorProgressEvent>("executor-progress", (event) => {
-
-          if (event.payload.conversationId !== conversationId) return;
-
-
-
-          if (event.payload.phase === "holding") {
-
-            setDelegatePhase("understanding");
-
-            if (event.payload.activity?.summary) {
-
-              setInterimHolding(event.payload.activity.summary);
-
+          if (event.payload.conversationId !== conversationId || !mountedRef.current) return;
+          const phase = event.payload.phase;
+          if (phase === "complete" || phase === "error" || phase === "plan_review") {
+            if (phase !== "plan_review") {
+              setAgentPhase(null);
             }
+          } else if (phase === "running" || phase === "executing" || phase === "holding") {
+            setAgentPhase("running");
+          }
+          if (event.payload.activity) {
+            setAgentActivity(event.payload.activity);
+          }
+        });
 
-          } else if (event.payload.phase === "executing") {
+        unlistenStream = await listen<AssistantStreamPayload>("assistant-stream", (event) => {
+          if (event.payload.conversationId !== conversationId || !mountedRef.current) return;
+          const { delta, done, content } = event.payload;
 
-            setDelegatePhase("executing");
-
-            if (event.payload.activity) {
-
-              setExecutorActivity(event.payload.activity);
-
-              const status = event.payload.activity.status.toLowerCase();
-
-              if (status === "success" || status === "done") {
-
-                delegationSucceededRef.current = true;
-
+          if (done) {
+            const hadStream = streamActive;
+            streamActive = false;
+            if (!hadStream) {
+              if (content?.trim()) {
+                setMessages((current) => [
+                  ...current,
+                  {
+                    id: streamingAssistantId,
+                    role: "assistant",
+                    content,
+                    streaming: false,
+                  },
+                ]);
               }
-
-            }
-
-          } else if (event.payload.phase === "formatting") {
-
-            setDelegatePhase("formatting");
-
-            delegationSucceededRef.current = true;
-
-          }
-
-        });
-
-
-
-        unlistenStream = await listen<CompanionStreamPayload>("companion-stream", (event) => {
-
-          const payload = event.payload;
-
-          if (payload.conversationId !== conversationId) return;
-
-
-
-          if (payload.phase === "plan") {
-
-            setDelegatePhase("understanding");
-
-            if (payload.done && payload.content) {
-
-              setInterimHolding(payload.content);
-
-              streamBufferRef.current = payload.content;
-
-              setStreamingContent(payload.content);
-
               return;
-
             }
 
-
-
-            streamBufferRef.current += payload.delta;
-
-            setInterimHolding(streamBufferRef.current);
-
-            setStreamingContent(streamBufferRef.current);
-
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === streamingAssistantId
+                  ? {
+                      ...message,
+                      content: content ?? message.content,
+                      streaming: false,
+                    }
+                  : message,
+              ),
+            );
             return;
-
           }
 
-
-
-          if (payload.phase === "final") {
-
-            setDelegatePhase("formatting");
-
-            if (payload.done && payload.content) {
-
-              streamBufferRef.current = payload.content;
-
-              setStreamingContent(payload.content);
-
-              delegationSucceededRef.current = true;
-
-              return;
-
-            }
-
-
-
-            streamBufferRef.current += payload.delta;
-
-            setStreamingContent(streamBufferRef.current);
-
+          if (!streamActive) {
+            streamActive = true;
+            setMessages((current) => [
+              ...current,
+              {
+                id: streamingAssistantId,
+                role: "assistant",
+                content: delta,
+                streaming: true,
+              },
+            ]);
+            return;
           }
 
+          if (delta) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === streamingAssistantId
+                  ? { ...message, content: message.content + delta, streaming: true }
+                  : message,
+              ),
+            );
+          }
         });
 
-
-
-        let result: SendMessageResult | null = null;
+        unlistenMessages = await listen<string>("messages-updated", (event) => {
+          if (event.payload !== conversationId || streamActive) return;
+          void reloadFromDb([0, 50, 200, 500]);
+        });
 
         try {
-
-          result = await sendMessageCommand(conversationId, content);
-
-        } catch (err) {
-
-          invokeFailed = true;
-
-          invokeErrorMessage = friendlyError(
-
-            err instanceof Error ? err.message : "",
-
-            t(locale, "sendMessageError"),
-
+          result = await sendMessageCommand(
+            conversationId,
+            messageForApi,
+            agentTier,
+            attachments,
+            exploreThenImplement,
           );
+          invokeSucceeded = true;
 
-          result = null;
-
+          if (result?.assistantMessage?.trim() && mountedRef.current) {
+            setMessages((current) =>
+              applyAssistantReply(current, result!.assistantMessage!, streamingAssistantId),
+            );
+          }
+        } catch (err) {
+          invokeFailed = true;
+          invokeErrorMessage = friendlyError(
+            err instanceof Error ? err.message : "",
+            t(locale, "sendMessageError"),
+          );
         }
-
-
-
-        const synced = await reloadFromDb(content);
-
-        if (synced || delegationSucceededRef.current) {
-
-          setSendError(null);
-
-        } else if (invokeFailed) {
-
-          setMessages((current) => current.filter((message) => message.id !== pendingUserId));
-
-          setSendError(invokeErrorMessage);
-
-        }
-
-
 
         if (result?.hasFileChanges && result.executorRunId) {
-
           try {
-
             const changes = await getExecutorRunChanges(result.executorRunId);
-
             if (changes.length > 0) {
-
               setFileChanges(changes);
-
               setExecutorRunId(result.executorRunId);
-
             }
-
           } catch {
-
-            // File changes can be reviewed later from the executor run record.
-
+            // Changes can be reviewed later from run record
           }
-
         }
 
-      } catch (err) {
-
-        const synced = await reloadFromDb(content, [0, 250]);
-
-        if (synced || delegationSucceededRef.current) {
-
-          setSendError(null);
-
-        } else {
-
-          setSendError(
-
-            friendlyError(
-
-              err instanceof Error ? err.message : "",
-
-              t(locale, "genericError"),
-
+        if (result?.awaitingPlanApproval && result.planContent) {
+          const planText = result.planContent.trim();
+          setPendingPlan(result.planContent);
+          setMessages((current) =>
+            current.filter(
+              (message) =>
+                message.role !== "assistant" || message.content.trim() !== planText,
             ),
-
           );
-
         }
 
+        if (result?.retrievedContext?.length && mountedRef.current) {
+          setRetrievedContext(result.retrievedContext);
+          setRagRefreshKey((key) => key + 1);
+        }
+      } catch (err) {
+        if (!invokeSucceeded) {
+          invokeFailed = true;
+          invokeErrorMessage = friendlyError(
+            err instanceof Error ? err.message : "",
+            t(locale, "sendMessageError"),
+          );
+        }
       } finally {
-
         unlistenProgress?.();
-
         unlistenStream?.();
+        unlistenMessages?.();
 
-
-
-        if (conversationId) {
-
-          let synced = await reloadFromDb(content, [0, 400, 1200]);
-
-          if (!synced && streamBufferRef.current.trim()) {
-
-            synced = await commitStreamFallback(content);
-
-          }
-
-          if (synced || delegationSucceededRef.current) {
-
-            setSendError(null);
-
-          }
-
+        if (mountedRef.current) {
+          setSending(false);
+          sendingRef.current = false;
+          setAgentPhase(null);
         }
 
+        await reconcileSendOutcome();
 
-
-        if (cancelRequestedRef.current && conversationId) {
-
+        // Drop ephemeral stream bubble — DB holds the canonical assistant reply.
+        if (mountedRef.current) {
           try {
-
             const stored = await getMessages(conversationId);
-
-            loadGenerationRef.current += 1;
-
-            setMessages(stored.map((m) => toUiMessage(m, locale, personalityId)));
-
+            if (assistantRepliesAfterLatestUser(stored).length > 0) {
+              loadGenerationRef.current += 1;
+              setMessages(storedToUiMessages(stored));
+            }
           } catch {
-
-            // Keep optimistic UI if reload fails.
-
+            // reconcileSendOutcome already retried
           }
-
         }
 
+        if (
+          result?.awaitingPlanApproval &&
+          result.planContent &&
+          mountedRef.current
+        ) {
+          const planText = result.planContent.trim();
+          setMessages((current) =>
+            current.filter(
+              (message) =>
+                message.role !== "assistant" || message.content.trim() !== planText,
+            ),
+          );
+        }
 
+        if (cancelRequestedRef.current && conversationId && mountedRef.current) {
+          try {
+            const stored = await getMessages(conversationId);
+            loadGenerationRef.current += 1;
+            setMessages(storedToUiMessages(stored));
+          } catch {
+            // Keep optimistic UI
+          }
+        }
 
         cancelRequestedRef.current = false;
-
-        setSending(false);
-
-        sendingRef.current = false;
-
-        setDelegatePhase(null);
-
-        setInterimHolding(null);
-
-        setStreamingContent(null);
-
-        streamBufferRef.current = "";
-
       }
-
     },
-
-    [conversationId, sending, locale, personalityId, connectionConfigured],
-
+    [conversationId, sending, pendingPlan, locale, connectionConfigured, agentTier],
   );
 
-
-
-  const statusMessage =
-
-    (streamingContent != null && streamingContent.length > 0
-
-      ? streamingContent
-
-      : null) ??
-
-    interimHolding ??
-
-    t(locale, phaseMessageKey(delegatePhase));
-
-
-
   const reset = useCallback(async () => {
-
     if (!conversationId) return;
-
-
-
     setSendError(null);
-
-    setExecutorActivity(null);
-
-
+    setAgentActivity(null);
+    setPendingPlan(null);
 
     try {
-
       await clearHistory(conversationId);
-
       const stored = await getMessages(conversationId);
-
-      setMessages(stored.map((m) => toUiMessage(m, locale, personalityId)));
-
+      setMessages(storedToUiMessages(stored));
     } catch (err) {
-
       setSendError(
-
         friendlyError(
-
           err instanceof Error ? err.message : "",
-
           t(locale, "clearHistoryError"),
-
         ),
-
       );
-
     }
+  }, [conversationId, locale]);
 
-  }, [conversationId, locale, personalityId]);
+  const respondToPlan = useCallback(
+    async (approved: boolean) => {
+      if (!conversationId || planBusy || sending) return;
+      setPlanBusy(true);
+      setSending(true);
+      sendingRef.current = true;
+      const generation = ++sendGenerationRef.current;
+      setAgentPhase("running");
+      setSendError(null);
+      setAgentActivity(null);
 
+      let unlistenProgress: (() => void) | undefined;
+      let unlistenStream: (() => void) | undefined;
 
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
 
-  return {
+        unlistenProgress = await listen<ExecutorProgressEvent>("executor-progress", (event) => {
+          if (event.payload.conversationId !== conversationId || !mountedRef.current) return;
+          const phase = event.payload.phase;
+          if (phase === "complete" || phase === "error" || phase === "plan_review") {
+            if (phase !== "plan_review") {
+              setAgentPhase(null);
+            }
+          } else if (phase === "running" || phase === "executing" || phase === "holding") {
+            setAgentPhase("running");
+          }
+          if (event.payload.activity) {
+            setAgentActivity(event.payload.activity);
+          }
+        });
 
-    messages,
+        unlistenStream = await listen<AssistantStreamPayload>("assistant-stream", (event) => {
+          if (event.payload.conversationId !== conversationId || !mountedRef.current) return;
+          if (!event.payload.done && event.payload.delta) {
+            setAgentPhase("running");
+          }
+        });
 
-    executorActivity,
+        const result = await respondToAgentPlan(conversationId, approved);
+        if (generation !== sendGenerationRef.current || !mountedRef.current) return;
+        setPendingPlan(null);
 
-    delegatePhase,
-
-    statusMessage,
-
-    streamingContent,
-
-    fileChanges,
-
-    executorRunId,
-
-    removeFileChanges: (paths?: string[]) => {
-
-      setFileChanges((current) => {
-
-        const next =
-
-          paths && paths.length > 0
-
-            ? current.filter((change) => !paths.includes(change.path))
-
-            : [];
-
-        if (next.length === 0) {
-
-          setExecutorRunId(null);
-
+        if (result.assistantMessage?.trim()) {
+          setMessages((current) => [
+            ...current.filter((message) => message.role !== "assistant" || message.id === "typing"),
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: result.assistantMessage!,
+            },
+          ]);
         }
 
-        return next;
+        if (result.hasFileChanges && result.executorRunId) {
+          try {
+            const changes = await getExecutorRunChanges(result.executorRunId);
+            if (changes.length > 0) {
+              setFileChanges(changes);
+              setExecutorRunId(result.executorRunId);
+            }
+          } catch {
+            // Changes can be reviewed later from run record
+          }
+        }
 
-      });
-
+        const stored = await getMessages(conversationId);
+        if (mountedRef.current) {
+          setMessages(storedToUiMessages(stored));
+          setSendError(null);
+        }
+      } catch (err) {
+        if (mountedRef.current) {
+          try {
+            const stored = await getMessages(conversationId);
+            const hasReply = assistantRepliesAfterLatestUser(stored).length > 0;
+            if (hasReply) {
+              setMessages(storedToUiMessages(stored));
+              setPendingPlan(null);
+              setSendError(null);
+              return;
+            }
+          } catch {
+            // Fall through to error display
+          }
+          setSendError(
+            friendlyError(err instanceof Error ? err.message : "", t(locale, "genericError")),
+          );
+        }
+      } finally {
+        unlistenProgress?.();
+        unlistenStream?.();
+        if (mountedRef.current) {
+          setSending(false);
+          sendingRef.current = false;
+          setAgentPhase(null);
+          setPlanBusy(false);
+        }
+      }
     },
+    [conversationId, planBusy, sending, locale],
+  );
 
+  const statusMessage =
+    agentActivity?.summary?.trim() ||
+    agentActivity?.taskSpec.objective ||
+    t(locale, agentPhase === "running" ? "phaseRunning" : "agentThinking");
+
+  return {
+    messages,
+    agentActivity,
+    agentPhase,
+    statusMessage,
+    fileChanges,
+    executorRunId,
+    removeFileChanges: (paths?: string[]) => {
+      setFileChanges((current) => {
+        const next =
+          paths && paths.length > 0
+            ? current.filter((change) => !paths.includes(change.path))
+            : [];
+        if (next.length === 0) {
+          queueMicrotask(() => setExecutorRunId(null));
+        }
+        return next;
+      });
+    },
     loading,
-
     sending,
-
     loadError,
-
     sendError,
-
     clearSendError: () => setSendError(null),
-
     send,
-
     cancel,
-
     reset,
-
     reload: load,
-
-    companionDisplayName: companionLabel(locale, personalityId),
-
-    personalityId,
-
     workspacePath,
-
     connectionConfigured,
-
-    executorVisibility,
-
+    agentVisibility,
+    ragEnabled,
+    retrievedContext,
+    clearRetrievedContext: () => setRetrievedContext([]),
+    ragRefreshKey,
+    agentTier,
+    setAgentTier: changeAgentTier,
+    pendingPlan,
+    planBusy,
+    respondToPlan,
+    conversationId,
   };
-
 }
-
-

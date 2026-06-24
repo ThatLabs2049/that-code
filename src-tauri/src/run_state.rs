@@ -30,7 +30,9 @@ impl RunState {
     }
 
     pub fn cancel(&self, conversation_id: &str) -> bool {
-        let guard = self.cancellations.lock().expect("run state lock");
+        let Ok(guard) = self.cancellations.lock() else {
+            return false;
+        };
         if let Some(flag) = guard.get(conversation_id) {
             flag.store(true, Ordering::SeqCst);
             true
@@ -40,10 +42,9 @@ impl RunState {
     }
 
     pub fn clear(&self, conversation_id: &str) {
-        self.cancellations
-            .lock()
-            .expect("run state lock")
-            .remove(conversation_id);
+        if let Ok(mut guard) = self.cancellations.lock() {
+            guard.remove(conversation_id);
+        }
     }
 
     pub fn is_cancelled(flag: &AtomicBool) -> bool {

@@ -1,7 +1,11 @@
+mod hunks;
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use serde::{Deserialize, Serialize};
+
+pub use hunks::{apply_hunk_selection, parse_diff_hunks, DiffHunk};
 
 use crate::tools::WorkspaceSandbox;
 
@@ -129,6 +133,10 @@ fn revert_change(sandbox: &WorkspaceSandbox, change: &FileChange) -> Result<(), 
 
 fn normalize_path(path: &str) -> String {
     path.trim().replace('\\', "/")
+}
+
+pub fn unified_diff_for_strings(path: &str, before: &str, after: &str) -> String {
+    unified_diff(path, before, after)
 }
 
 fn unified_diff(path: &str, before: &str, after: &str) -> String {

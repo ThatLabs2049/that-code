@@ -36,13 +36,36 @@ pub fn insert_chunk(conn: &Connection, chunk: &RagChunk) -> SqlResult<()> {
     Ok(())
 }
 
-pub fn list_chunks(conn: &Connection) -> SqlResult<Vec<RagChunk>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, source_path, chunk_index, content, embedding, updated_at
-         FROM rag_chunks",
-    )?;
-
+pub fn list_embedding_records(conn: &Connection) -> SqlResult<Vec<(String, Vec<f32>)>> {
+    let mut stmt = conn.prepare("SELECT id, embedding FROM rag_chunks")?;
     let rows = stmt.query_map([], |row| {
+        let embedding_json: String = row.get(1)?;
+        let embedding: Vec<f32> = serde_json::from_str(&embedding_json).map_err(|err| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(err))
+        })?;
+        Ok((row.get::<_, String>(0)?, embedding))
+    })?;
+    rows.collect()
+}
+
+pub fn get_chunks_by_ids(conn: &Connection, ids: &[String]) -> SqlResult<Vec<RagChunk>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT id, source_path, chunk_index, content, embedding, updated_at
+         FROM rag_chunks
+         WHERE id IN ({placeholders})"
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<&dyn rusqlite::ToSql> = ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::ToSql)
+        .collect();
+    let rows = stmt.query_map(params.as_slice(), |row| {
         let embedding_json: String = row.get(4)?;
         let embedding: Vec<f32> = serde_json::from_str(&embedding_json).map_err(|err| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(err))
@@ -57,7 +80,15 @@ pub fn list_chunks(conn: &Connection) -> SqlResult<Vec<RagChunk>> {
         })
     })?;
 
-    rows.collect()
+    let mut by_id: std::collections::HashMap<String, RagChunk> = rows
+        .filter_map(Result::ok)
+        .map(|chunk| (chunk.id.clone(), chunk))
+        .collect();
+
+    Ok(ids
+        .iter()
+        .filter_map(|id| by_id.remove(id))
+        .collect())
 }
 
 pub fn chunk_count(conn: &Connection) -> SqlResult<usize> {

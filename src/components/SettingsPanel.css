@@ -153,7 +153,7 @@
 .settings-button--primary {
   background: var(--accent);
   border-color: transparent;
-  color: #1a1408;
+  color: var(--on-accent);
 }
 
 .settings-button--secondary {
@@ -187,7 +187,7 @@
 
 .settings-feedback--success {
   background: var(--accent-soft);
-  border: 1px solid var(--companion-border);
+  border: 1px solid var(--assistant-border);
   color: var(--text-primary);
 }
 
@@ -264,4 +264,41 @@
 
 .settings-advanced-toggle {
   margin-top: var(--space-2);
+}
+
+.settings-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.settings-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  text-align: start;
+  cursor: pointer;
+}
+
+.settings-preset--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.settings-preset__title {
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.settings-preset__desc {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  line-height: 1.35;
 }

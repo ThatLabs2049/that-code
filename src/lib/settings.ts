@@ -1,13 +1,17 @@
 export type ThemePreference = "dark" | "light" | "system";
 
+export type AgentTier = "auto" | "quick" | "standard" | "deep" | "explain";
+
 export interface AiSettingsView {
   baseUrl: string;
   apiKeyMasked: string;
   apiKeyConfigured: boolean;
-  companionModel: string;
-  executorModel: string;
-  companionTemperature: number;
-  executorTemperature: number;
+  agentModel: string;
+  agentTemperature: number;
+  fastModel: string;
+  strongModel: string;
+  autoEscalate: boolean;
+  defaultAgentTier: AgentTier;
   executorVisibility: boolean;
   uiLocale: string;
   workspacePath: string | null;
@@ -21,8 +25,11 @@ export interface AiSettingsView {
   verifyEnabled: boolean;
   verifyCommand: string | null;
   contextPackEnabled: boolean;
-  personalityId: string;
   commandAllowlistExtra: string[];
+  projectRulesEnabled: boolean;
+  projectRulesFile: string | null;
+  planBeforeEdit: boolean;
+  editorOpenUrl: string;
   ragAutoIndex: boolean;
   taskQueueEnabled: boolean;
   mcpEnabled: boolean;
@@ -34,10 +41,12 @@ export interface AiSettingsView {
 export interface UpdateAiSettings {
   baseUrl?: string;
   apiKey?: string;
-  companionModel?: string;
-  executorModel?: string;
-  companionTemperature?: number;
-  executorTemperature?: number;
+  agentModel?: string;
+  agentTemperature?: number;
+  fastModel?: string;
+  strongModel?: string;
+  autoEscalate?: boolean;
+  defaultAgentTier?: AgentTier;
   executorVisibility?: boolean;
   uiLocale?: string;
   workspacePath?: string | null;
@@ -50,8 +59,10 @@ export interface UpdateAiSettings {
   verifyEnabled?: boolean;
   verifyCommand?: string | null;
   contextPackEnabled?: boolean;
-  personalityId?: string;
   commandAllowlistExtra?: string[];
+  projectRulesEnabled?: boolean;
+  planBeforeEdit?: boolean;
+  editorOpenUrl?: string;
   ragAutoIndex?: boolean;
   taskQueueEnabled?: boolean;
   mcpEnabled?: boolean;

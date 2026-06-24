@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { useLocale } from "../context/LocaleContext";
 import "./MessageContent.css";
 
@@ -134,10 +134,19 @@ interface MessageContentProps {
   streaming?: boolean;
 }
 
-export function MessageContent({ content, plain, streaming }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({
+  content,
+  plain,
+  streaming,
+}: MessageContentProps) {
   const { translate } = useLocale();
+  const usePlain = plain || streaming;
+  const blocks = useMemo(
+    () => (usePlain ? null : parseBlocks(content)),
+    [content, usePlain],
+  );
 
-  if (plain) {
+  if (usePlain) {
     return (
       <p className="message__content" dir="auto">
         {content}
@@ -146,11 +155,9 @@ export function MessageContent({ content, plain, streaming }: MessageContentProp
     );
   }
 
-  const blocks = parseBlocks(content);
-
   return (
     <div className="message-md" dir="auto">
-      {blocks.map((block, index) => {
+      {blocks!.map((block, index) => {
         if (block.type === "code") {
           return (
             <div key={index} className="message-md__code-wrap">
@@ -178,4 +185,4 @@ export function MessageContent({ content, plain, streaming }: MessageContentProp
       {streaming && <span className="message-md__cursor" aria-hidden="true" />}
     </div>
   );
-}
+});

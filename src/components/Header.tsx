@@ -1,19 +1,27 @@
 import { type RefObject } from "react";
 import { formatMessage } from "../lib/i18n";
 import { useLocale } from "../context/LocaleContext";
-import { personalityDisplayName } from "./PersonalityCards";
+import { RagStatusBadge } from "./RagStatusBadge";
+import type { RagStatus, IndexProgress } from "../lib/rag";
 import "./ChatScreen.css";
 
 interface HeaderProps {
-  personalityId: string;
   workspacePath?: string | null;
   connectionConfigured?: boolean;
   changeReviewCount?: number;
+  ragStatus?: RagStatus | null;
+  ragIndexing?: boolean;
+  ragIndexProgress?: IndexProgress | null;
+  projectRulesFile?: string | null;
+  projectRulesEnabled?: boolean;
   settingsTriggerRef: RefObject<HTMLButtonElement | null>;
   onOpenSettings: () => void;
   onOpenConnectionSettings?: () => void;
   onOpenWorkspaceSettings?: () => void;
+  onOpenRagSettings?: () => void;
   onOpenChangeReview?: () => void;
+  onReindexRag?: () => void;
+  onCancelRagIndex?: () => void;
   onResetChat: () => void;
   resetDisabled?: boolean;
   interactionsDisabled?: boolean;
@@ -27,39 +35,37 @@ function truncatePath(path: string, maxLen = 24): string {
 }
 
 export function Header({
-  personalityId,
   workspacePath,
   connectionConfigured,
   changeReviewCount = 0,
+  ragStatus,
+  ragIndexing = false,
+  ragIndexProgress,
+  projectRulesFile,
+  projectRulesEnabled = true,
   settingsTriggerRef,
   onOpenSettings,
   onOpenConnectionSettings,
   onOpenWorkspaceSettings,
+  onOpenRagSettings,
   onOpenChangeReview,
+  onReindexRag,
+  onCancelRagIndex,
   onResetChat,
   resetDisabled,
   interactionsDisabled,
 }: HeaderProps) {
   const { locale, translate } = useLocale();
-  const companionName = personalityDisplayName(locale, personalityId);
 
   return (
     <header className={`chat-header${interactionsDisabled ? " chat-header--disabled" : ""}`}>
       <div className="chat-header__brand">
         <div className="chat-header__logo-wrap">
-          <img className="chat-header__logo" src="/muse-logo.svg" alt="" width={24} height={24} />
+          <img className="chat-header__logo" src="/thatcode-icon.svg" alt="" width={32} height={32} />
         </div>
         <div className="chat-header__title-wrap">
-          <div className="chat-header__title-row">
-            <h1 className="chat-header__title">{translate("appName")}</h1>
-            <span className="chat-header__personality" data-personality={personalityId}>
-              <span className="chat-header__personality-marker" aria-hidden="true" />
-              {companionName}
-            </span>
-          </div>
-          <p className="chat-header__subtitle">
-            {formatMessage(locale, "appSubtitleDynamic", { name: companionName })}
-          </p>
+          <h1 className="chat-header__title">{translate("appName")}</h1>
+          <p className="chat-header__subtitle">{translate("appSubtitle")}</p>
         </div>
       </div>
       <div className="chat-header__meta">
@@ -90,8 +96,36 @@ export function Header({
           >
             {truncatePath(workspacePath)}
           </button>
-        ) : null}
-        {changeReviewCount > 0 && (
+        ) : (
+          <button
+            type="button"
+            className="chat-header__workspace chat-header__workspace--unset"
+            onClick={onOpenWorkspaceSettings ?? onOpenSettings}
+            disabled={interactionsDisabled}
+          >
+            {translate("workspaceUnset")}
+          </button>
+        )}
+        {projectRulesEnabled && projectRulesFile && (
+          <span
+            className="chat-header__rules"
+            title={formatMessage(locale, "projectRulesActive", { file: projectRulesFile })}
+          >
+            {formatMessage(locale, "projectRulesBadge", { file: projectRulesFile })}
+          </span>
+        )}
+        {workspacePath && onReindexRag && (
+          <RagStatusBadge
+            status={ragStatus ?? null}
+            indexing={ragIndexing}
+            indexProgress={ragIndexProgress}
+            disabled={interactionsDisabled}
+            onReindex={onReindexRag}
+            onCancelIndex={onCancelRagIndex}
+            onOpenSettings={onOpenRagSettings ?? onOpenSettings}
+          />
+        )}
+        {changeReviewCount > 0 && onOpenChangeReview && (
           <button
             type="button"
             className="chat-header__changes-badge"

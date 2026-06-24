@@ -1,0 +1,93 @@
+.task-queue {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  padding: 0.75rem 1rem;
+}
+
+.task-queue__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.task-queue__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.task-queue__clear {
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.125rem 0.25rem;
+}
+
+.task-queue__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.task-queue__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.task-queue__status-badge {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-overlay);
+  color: var(--text-muted);
+}
+
+.task-queue__item--running .task-queue__status-badge {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.task-queue__item--pending .task-queue__status-badge {
+  color: var(--status-warning);
+  background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+}
+
+.task-queue__item--done .task-queue__status-badge {
+  color: var(--status-success);
+  background: color-mix(in srgb, var(--status-success) 12%, transparent);
+}
+
+.task-queue__item--error .task-queue__status-badge {
+  color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 12%, transparent);
+}
+
+.task-queue__objective {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--text-primary);
+}
+
+.task-queue__status {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}

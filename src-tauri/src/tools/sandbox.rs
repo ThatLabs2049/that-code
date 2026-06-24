@@ -1,6 +1,18 @@
 use std::path::{Component, Path, PathBuf};
 
 pub const MAX_READ_BYTES: usize = 512 * 1024;
+pub const MAX_WRITE_BYTES: usize = MAX_READ_BYTES;
+
+pub fn truncate_at_byte_boundary(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… [truncated]", &text[..end])
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
@@ -34,6 +46,18 @@ impl WorkspaceSandbox {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Re-check that a resolved path still lies inside the workspace (mitigates TOCTOU).
+    pub fn revalidate_path(&self, path: &Path) -> Result<(), SandboxError> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let canonical = path.canonicalize()?;
+        if !canonical.starts_with(&self.root) {
+            return Err(SandboxError::OutsideWorkspace);
+        }
+        Ok(())
     }
 
     pub fn resolve(&self, relative: &str) -> Result<PathBuf, SandboxError> {

@@ -1,4 +1,4 @@
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 pub const MIGRATION_V1: &str = r"
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -72,4 +72,15 @@ CREATE TABLE IF NOT EXISTS task_queue (
 
 CREATE INDEX IF NOT EXISTS idx_task_queue_conversation
     ON task_queue (conversation_id, status, position);
+";
+
+pub const MIGRATION_V4: &str = r"
+CREATE TABLE IF NOT EXISTS pending_plans (
+    conversation_id  TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    task_spec        TEXT NOT NULL,
+    tier             TEXT NOT NULL,
+    briefing         TEXT NOT NULL,
+    activity_log     TEXT NOT NULL DEFAULT '[]',
+    created_at       TEXT NOT NULL
+);
 ";

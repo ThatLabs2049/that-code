@@ -65,7 +65,7 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "run_command",
-        description: "Run allowlisted shell command in workspace root",
+        description: "Run an allowlisted build/test command in the workspace root (e.g. npm test, cargo test). No shell pipes or chaining.",
         required: &["command"],
         optional: &[],
     },
@@ -126,9 +126,15 @@ fn validate_args(spec: &ToolSpec, args: &Value) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn openai_tool_definitions() -> Vec<Value> {
+    openai_tool_definitions_filtered(|_| true)
+}
+
+pub fn openai_tool_definitions_filtered(mut allow: impl FnMut(&str) -> bool) -> Vec<Value> {
     TOOL_SPECS
         .iter()
+        .filter(|spec| allow(spec.name))
         .map(openai_tool_definition)
         .chain(std::iter::once(openai_tool_definition(&FINAL_ANSWER_SPEC)))
         .collect()

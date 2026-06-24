@@ -3,7 +3,8 @@ use std::fs;
 use std::path::Path;
 
 use super::command;
-use super::sandbox::{SandboxError, WorkspaceSandbox, MAX_READ_BYTES};
+use super::sandbox::{SandboxError, WorkspaceSandbox, MAX_READ_BYTES, MAX_WRITE_BYTES};
+use crate::rag::{load_ignore_patterns, should_ignore_name, should_ignore_relative_path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,9 +38,14 @@ pub fn list_dir(ctx: &ToolContext, path: &str) -> ToolResult {
                     })
                     .collect();
                 names.sort();
+                let output = if names.is_empty() {
+                    "(empty directory — no files yet. Use write_file to create new files.)".into()
+                } else {
+                    names.join("\n")
+                };
                 ToolResult {
                     ok: true,
-                    output: names.join("\n"),
+                    output,
                     error: None,
                 }
             }
@@ -55,8 +61,14 @@ pub fn read_file(ctx: &ToolContext, path: &str) -> ToolResult {
         Err(err) => return tool_error(err.to_string()),
     };
 
+    if let Err(err) = ctx.sandbox.revalidate_path(&resolved) {
+        return tool_error(err.to_string());
+    }
+
     if !resolved.is_file() {
-        return tool_error("path is not a file");
+        return tool_error(
+            "path is not a file — use list_dir to see what exists, or write_file to create it",
+        );
     }
 
     let metadata = match fs::metadata(&resolved) {
@@ -90,10 +102,16 @@ pub fn write_file(ctx: &ToolContext, path: &str, content: &str) -> ToolResult {
         Err(err) => return tool_error(err.to_string()),
     };
 
-    if resolved.exists() && !ctx.allow_overwrites {
+    if resolved.exists() {
+        if !ctx.allow_overwrites {
+            return tool_error(
+                "file already exists and overwriting is disabled in Settings — enable \
+                 \"Allow modifying files\" or choose a new path",
+            );
+        }
         return tool_error(
-            "file already exists and overwriting is disabled in Settings — enable \
-             \"Allow modifying files\" or choose a new path",
+            "file already exists — use edit_file with a unique old_string snippet for surgical changes. \
+             write_file is only for creating new files",
         );
     }
 
@@ -150,7 +168,16 @@ pub fn grep(ctx: &ToolContext, pattern: &str, path: &str) -> ToolResult {
 
     let pattern_lower = pattern.to_lowercase();
     let mut hits = Vec::new();
-    grep_path(&root, ctx, &pattern_lower, &mut hits, 0, 6);
+    let ignore_patterns = load_ignore_patterns(ctx.sandbox.root());
+    grep_path(
+        &root,
+        ctx,
+        &pattern_lower,
+        &mut hits,
+        0,
+        6,
+        &ignore_patterns,
+    );
 
     ToolResult {
         ok: true,
@@ -241,7 +268,17 @@ pub fn delete_file(ctx: &ToolContext, path: &str) -> ToolResult {
     }
 }
 
-fn write_bytes(_ctx: &ToolContext, resolved: &Path, bytes: &[u8], display_path: &str) -> ToolResult {
+fn write_bytes(ctx: &ToolContext, resolved: &Path, bytes: &[u8], display_path: &str) -> ToolResult {
+    if bytes.len() > MAX_WRITE_BYTES {
+        return tool_error(format!(
+            "content exceeds size limit of {MAX_WRITE_BYTES} bytes"
+        ));
+    }
+
+    if let Err(err) = ctx.sandbox.revalidate_path(resolved) {
+        return tool_error(err.to_string());
+    }
+
     if let Some(parent) = resolved.parent() {
         if let Err(err) = fs::create_dir_all(parent) {
             return tool_error(format!("could not create parent directories: {err}"));
@@ -265,9 +302,19 @@ fn grep_path(
     hits: &mut Vec<String>,
     depth: usize,
     max_depth: usize,
+    ignore_patterns: &[String],
 ) {
     if depth > max_depth || hits.len() >= 80 {
         return;
+    }
+
+    if let Ok(relative) = path.strip_prefix(ctx.sandbox.root()) {
+        let relative_str = relative.to_string_lossy().replace('\\', "/");
+        if !relative_str.is_empty()
+            && should_ignore_relative_path(&relative_str, ignore_patterns)
+        {
+            return;
+        }
     }
 
     if path.is_file() {
@@ -305,10 +352,18 @@ fn grep_path(
             break;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name == "node_modules" || name == "target" {
+        if should_ignore_name(&name, ignore_patterns) {
             continue;
         }
-        grep_path(&entry.path(), ctx, pattern, hits, depth + 1, max_depth);
+        grep_path(
+            &entry.path(),
+            ctx,
+            pattern,
+            hits,
+            depth + 1,
+            max_depth,
+            ignore_patterns,
+        );
     }
 }
 
@@ -329,7 +384,16 @@ pub fn search_files(ctx: &ToolContext, query: &str, path: &str) -> ToolResult {
 
     let query_lower = query.to_lowercase();
     let mut matches = Vec::new();
-    search_dir(&root, ctx, &query_lower, &mut matches, 0, 4);
+    let ignore_patterns = load_ignore_patterns(ctx.sandbox.root());
+    search_dir(
+        &root,
+        ctx,
+        &query_lower,
+        &mut matches,
+        0,
+        4,
+        &ignore_patterns,
+    );
 
     ToolResult {
         ok: true,
@@ -349,9 +413,19 @@ fn search_dir(
     matches: &mut Vec<String>,
     depth: usize,
     max_depth: usize,
+    ignore_patterns: &[String],
 ) {
     if depth > max_depth || matches.len() >= 50 {
         return;
+    }
+
+    if let Ok(relative) = dir.strip_prefix(ctx.sandbox.root()) {
+        let relative_str = relative.to_string_lossy().replace('\\', "/");
+        if !relative_str.is_empty()
+            && should_ignore_relative_path(&relative_str, ignore_patterns)
+        {
+            return;
+        }
     }
 
     let entries = match fs::read_dir(dir) {
@@ -367,15 +441,20 @@ fn search_dir(
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
 
-        if name.starts_with('.') {
+        if should_ignore_name(&name, ignore_patterns) {
             continue;
         }
 
         if path.is_dir() {
-            if name == "node_modules" || name == "target" {
-                continue;
-            }
-            search_dir(&path, ctx, query, matches, depth + 1, max_depth);
+            search_dir(
+                &path,
+                ctx,
+                query,
+                matches,
+                depth + 1,
+                max_depth,
+                ignore_patterns,
+            );
             continue;
         }
 
@@ -570,6 +649,15 @@ mod tests {
         let result = write_file(&ctx, "readme.txt", "new");
         assert!(!result.ok);
         assert!(result.error.unwrap().contains("overwriting"));
+    }
+
+    #[test]
+    fn blocks_rewrite_of_existing_file_even_with_overwrites() {
+        let (_root, mut ctx) = test_context();
+        ctx.allow_overwrites = true;
+        let result = write_file(&ctx, "readme.txt", "full rewrite");
+        assert!(!result.ok);
+        assert!(result.error.unwrap().contains("edit_file"));
     }
 
     #[test]
