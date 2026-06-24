@@ -143,6 +143,27 @@
         width: 100%;
         height: auto;
       }
+      .shots-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: center;
+        margin: 2rem 0;
+      }
+      .shots-row figure {
+        margin: 0;
+        flex: 1 1 240px;
+        max-width: 320px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: var(--bg-elevated);
+      }
+      .shots-row img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
       .footer {
         text-align: center;
         margin-top: 2.5rem;
@@ -209,8 +230,20 @@
       </section>
 
       <figure class="shot">
-        <img src="screenshots/chat.png" alt="ThatCode chat with project context and sidebar" width="820" height="auto" />
+        <img src="screenshots/chat.png?v=271" alt="ThatCode main view with onboarding and quick prompts" width="820" height="auto" />
       </figure>
+
+      <div class="shots-row" aria-label="Settings">
+        <figure>
+          <img src="screenshots/agent.png?v=271" alt="Settings — Agent tab" width="320" height="auto" />
+        </figure>
+        <figure>
+          <img src="screenshots/connections.png?v=271" alt="Settings — Connection tab" width="320" height="auto" />
+        </figure>
+        <figure>
+          <img src="screenshots/workspace.png?v=271" alt="Settings — Workspace tab" width="320" height="auto" />
+        </figure>
+      </div>
 
       <p class="footer">
         Sibling to <a href="https://github.com/Satan2049/ThatGPT">ThatGPT</a> — separate product, same local-first tone.<br />

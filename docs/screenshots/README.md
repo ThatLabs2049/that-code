@@ -4,10 +4,10 @@ Marketing images for [README.md](../../README.md) and [index.html](../index.html
 
 | File | Use |
 |------|-----|
-| `chat.png` | Main ThatCode chat with project context |
-| `agent.png` | Tool activity, diffs, and sidebar |
-| `connections.png` | Settings → Connection / models |
-| `workspace.png` | Settings → Workspace sandbox |
+| `chat.png` | Main view — onboarding, quick prompts, input bar |
+| `agent.png` | Settings → Agent (theme, memories, clear history) |
+| `connections.png` | Settings → Connection (API URL, key, model presets) |
+| `workspace.png` | Settings → Workspace (project folder, verify loop) |
 
 ## Replacing captures
 
