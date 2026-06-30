@@ -1,0 +1,125 @@
+# Build macOS + Linux installers and attach them to an existing GitHub Release.
+# Use this for v2.7.1 (Windows already shipped) without re-tagging.
+#
+# Run: Actions → "Build macOS and Linux" → Run workflow → tag: v2.7.1
+
+name: Build macOS and Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach artifacts to (e.g. v2.7.1)
+        required: true
+        default: v2.7.1
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build macOS bundle (unsigned)
+        run: npm run tauri build -- --bundles dmg
+        env:
+          CI: true
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS artifacts to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          BUNDLE="src-tauri/target/release/bundle"
+          shopt -s nullglob
+          assets=("$BUNDLE/dmg"/*.dmg "$BUNDLE/macos"/*.app.tar.gz)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No macOS bundle artifacts found under $BUNDLE"
+            find "$BUNDLE" -type f 2>/dev/null || true
+            exit 1
+          fi
+          echo "Uploading: ${assets[*]}"
+          gh release upload "$TAG" "${assets[@]}" --clobber
+
+  build-linux:
+    name: Build (Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Linux bundles
+        run: npm run tauri build -- --bundles deb,appimage
+        env:
+          CI: true
+
+      - name: Upload Linux artifacts to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          BUNDLE="src-tauri/target/release/bundle"
+          shopt -s nullglob
+          assets=("$BUNDLE/deb"/*.deb "$BUNDLE/appimage"/*.AppImage)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No Linux bundle artifacts found under $BUNDLE"
+            find "$BUNDLE" -type f 2>/dev/null || true
+            exit 1
+          fi
+          echo "Uploading: ${assets[*]}"
+          gh release upload "$TAG" "${assets[@]}" --clobber
